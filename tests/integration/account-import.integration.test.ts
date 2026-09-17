@@ -134,6 +134,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     if (createdBatchIds.length) await prisma.importBatch.deleteMany({ where: { id: { in: createdBatchIds } } });
     if (createdSourceIds.length) await prisma.account.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (userId) await prisma.auditEvent.deleteMany({ where: { actorId: userId } });
+    if (createdSourceIds.length) await prisma.sourcePolicySnapshot.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     const throttleKey = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
     if (userId) {
@@ -231,6 +232,18 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     const final = await request(`/api/sources/${sourceId}`);
     expect(final.data.item.policyVersion).toBe(expectedPolicyVersion + 1);
     expect([31, 32]).toContain(final.data.item.retentionDays);
+  });
+
+  it("R04 legacy/unknown 快照只保留未知标记，不伪造授权或恢复可用性", async () => {
+    const sourceId = await createSource(`R04 legacy ${randomUUID()}`);
+    await prisma.sourcePolicySnapshot.create({ data: {
+      sourceId, version: 99, status: null, allowImport: null, allowExtract: null, allowEvidenceText: null,
+      retentionDays: null, expiresAt: null, permissionNote: null, authorizationBasis: "legacy/unknown",
+      changeType: "LEGACY_TEST", isLegacy: true,
+    } });
+    const history = await request(`/api/sources/${sourceId}/history`);
+    expect(history.data.items[0]).toMatchObject({ version: 99, isLegacy: true, authorizationBasis: "legacy/unknown" });
+    expect(history.data.items[0].allowExtract).toBeNull();
   });
 
   it("T04 创建同名不同主页账号不会错误合并", async () => {
