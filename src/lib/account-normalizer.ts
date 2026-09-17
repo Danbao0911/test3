@@ -48,9 +48,10 @@ function rejectUnsafeUrl(url: URL) {
   if (url.port && url.port !== "443") throw new UrlValidationError("URL_PORT", "链接端口不符合要求");
 }
 
-function cleanUrl(url: URL) {
-  url.hash = "";
+function cleanUrl(url: URL, preserveFragment = false, stripTracking = true) {
+  if (!preserveFragment) url.hash = "";
   for (const key of [...url.searchParams.keys()]) {
+    if (!stripTracking) continue;
     if (trackingParams.has(key.toLowerCase()) || key.toLowerCase().startsWith("utm_")) {
       url.searchParams.delete(key);
     }
@@ -93,6 +94,20 @@ export function normalizeProfileUrl(platform: Platform, rawUrl: string) {
   return cleanUrl(url);
 }
 
+/** A contact target is not an account identity. Preserve query and fragment because
+ * they may select the actual booking/contact destination. */
+export function normalizeContactTargetUrl(rawUrl: string) {
+  let url: URL;
+  try { url = new URL(rawUrl.trim()); }
+  catch { throw new UrlValidationError("CONTACT_URL_FORMAT", "商务联系目标链接格式无效"); }
+  rejectUnsafeUrl(url);
+  url.hostname = url.hostname.toLowerCase();
+  if (isSyntheticMode() && !["example.com", "example.net", "example.org"].includes(url.hostname)) {
+    throw new UrlValidationError("SYNTHETIC_ONLY", "演示/测试联系目标只接受 example.com/net/org");
+  }
+  return cleanUrl(url, true, false);
+}
+
 export function normalizeSourceUrl(rawUrl: string) {
   let url: URL;
   try {
@@ -103,5 +118,5 @@ export function normalizeSourceUrl(rawUrl: string) {
   rejectUnsafeUrl(url);
   url.hostname = url.hostname.toLowerCase();
   if (isSyntheticMode() && !["example.com", "example.net", "example.org"].includes(url.hostname)) throw new UrlValidationError("SYNTHETIC_ONLY", "演示/测试证据来源只接受 example.com/net/org");
-  return cleanUrl(url);
+  return cleanUrl(url, true);
 }

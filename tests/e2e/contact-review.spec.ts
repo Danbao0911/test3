@@ -65,3 +65,46 @@ test("来源独立授权—单条录入—联系提取—证据核验—失效�
   await expect(page.locator("article").filter({ hasText: "e2e-review@example.com" })).toHaveCount(0);
   await expect(page.locator("article").first()).toContainText("已隐藏");
 });
+
+test("两个浏览器上下文编辑同一来源时拒绝旧策略覆盖", async ({ page, browser }) => {
+  const suffix = randomUUID();
+  const sourceName = `策略冲突 E2E ${suffix}`;
+  const secondContext = await browser.newContext();
+  const second = await secondContext.newPage();
+  async function login(target: typeof page) {
+    await target.goto("/login");
+    await target.getByLabel("管理员邮箱").fill(email);
+    await target.getByLabel("密码").fill(password);
+    await target.getByRole("button", { name: "登录", exact: true }).click();
+    await expect(target).toHaveURL(/\/accounts$/);
+  }
+  try {
+    await login(page); await page.goto("/sources");
+    await page.getByLabel("来源名称").fill(sourceName);
+    await page.getByLabel("允许录入依据说明").fill("两个上下文的版本冲突测试");
+    await page.getByRole("button", { name: "创建 DRAFT 来源" }).click();
+    const rowA = page.locator("tbody tr").filter({ hasText: sourceName });
+    await rowA.getByRole("button", { name: "批准录入" }).click();
+    await expect(rowA).toContainText("APPROVED");
+    const sourceId = await rowA.getAttribute("data-source-id");
+    await second.goto("/sources");
+    const rowB = second.locator(`tr[data-source-id="${sourceId}"]`);
+    await expect(rowB).toContainText("策略 v2");
+    await rowA.getByRole("button", { name: "编辑策略" }).click();
+    await rowB.getByRole("button", { name: "编辑策略" }).click();
+    await rowB.getByLabel("允许联系提取", { exact: true }).check();
+    await rowB.getByLabel("允许保留最小证据文本").check();
+    await rowB.getByRole("button", { name: "保存策略" }).click();
+    await expect(rowB).toContainText("联系提取：允许");
+    await rowA.getByLabel("联系有效天数").fill("45");
+    await rowA.getByRole("button", { name: "保存策略" }).click();
+    await expect(page.getByRole("alert")).toContainText("策略已被其他管理员更新");
+    await expect(rowA).toContainText("联系提取：关闭");
+    await expect(rowA).toContainText("策略 v2");
+    await second.reload();
+    await expect(second.locator(`tr[data-source-id="${sourceId}"]`)).toContainText("策略 v3");
+    await expect(second.locator(`tr[data-source-id="${sourceId}"]`)).toContainText("联系提取：允许");
+  } finally {
+    await secondContext.close();
+  }
+});

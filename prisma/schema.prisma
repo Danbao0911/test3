@@ -63,6 +63,7 @@ model User {
   reviews        ReviewDecision[]
   auditEvents    AuditEvent[]
   policyChanges  Source[]       @relation("PolicyActor")
+  policySnapshots SourcePolicySnapshot[] @relation("PolicySnapshotActor")
 }
 
 model Session {
@@ -105,6 +106,7 @@ model Source {
   accounts       Account[]
   importBatches  ImportBatch[]
   evidence       Evidence[]
+  policySnapshots SourcePolicySnapshot[]
 
   @@index([status, allowImport])
   @@index([expiresAt])
@@ -171,12 +173,39 @@ model ImportRowResult {
   @@index([batchId, status])
 }
 
+// One immutable record per source policy version. Legacy rows intentionally carry
+// nullable capability fields and isLegacy=true because their historical grant is unknown.
+model SourcePolicySnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  sourceId          String   @db.Uuid
+  version           Int
+  status            SourceStatus?
+  allowImport       Boolean?
+  allowExtract      Boolean?
+  allowEvidenceText Boolean?
+  retentionDays     Int?
+  expiresAt         DateTime?
+  permissionNote    String?  @db.VarChar(2000)
+  authorizationBasis String  @db.VarChar(2000)
+  changedById       String?  @db.Uuid
+  recordedAt        DateTime @default(now())
+  changeType        String   @db.VarChar(50)
+  isLegacy          Boolean  @default(false)
+  source            Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  changedBy         User?    @relation("PolicySnapshotActor", fields: [changedById], references: [id], onDelete: Restrict)
+  evidence          Evidence[]
+
+  @@unique([sourceId, version])
+  @@index([sourceId, recordedAt])
+}
+
 // Immutable, field-specific excerpts only; full input text is never persisted.
 model Evidence {
   id              String   @id @default(uuid()) @db.Uuid
   accountId       String   @db.Uuid
   sourceId        String   @db.Uuid
   policyVersion   Int
+  policySnapshotId String   @db.Uuid
   sourceUrl       String   @db.VarChar(2048)
   capturedAt      DateTime
   fieldLocation   String   @db.VarChar(240)
@@ -184,6 +213,7 @@ model Evidence {
   createdAt       DateTime @default(now())
   account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   source          Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot  SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
   contact         ContactPoint?
 
   @@index([accountId, createdAt])

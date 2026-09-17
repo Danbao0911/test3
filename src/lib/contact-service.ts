@@ -21,7 +21,9 @@ async function lockSource(tx: Prisma.TransactionClient, sourceId: string) {
   await tx.$queryRaw`SELECT "id" FROM "Source" WHERE "id" = ${sourceId}::uuid FOR UPDATE`;
   const source = await tx.source.findUnique({ where: { id: sourceId } });
   if (!source) throw new ContactError("NOT_FOUND", "来源不存在", 404);
-  return source;
+  const snapshot = await tx.sourcePolicySnapshot.findUnique({ where: { sourceId_version: { sourceId, version: source.policyVersion } } });
+  if (!snapshot || snapshot.isLegacy || snapshot.status === null || snapshot.allowExtract === null || snapshot.allowEvidenceText === null) throw new ContactError("POLICY_SNAPSHOT_MISSING", "当前来源缺少可核验的策略快照", 403);
+  return { source, snapshot };
 }
 
 export async function extractForAccount(db: PrismaClient, actorId: string, input: ExtractionInput) {
@@ -29,7 +31,7 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
   if (currentRuntimeMode() === "production") throw new ContactError("PRODUCTION_DISABLED", "联系处理暂仅开放隔离演示/测试环境；真实数据需等待删除与抑制流程验收", 403);
   return db.$transaction(async tx => {
     await requireWriter(tx, actorId);
-    const source = await lockSource(tx, input.sourceId);
+    const { source, snapshot } = await lockSource(tx, input.sourceId);
     if (!sourceTypeAllowed(source.type) || !extractionAllowed(source)) throw new ContactError("SOURCE_NOT_ALLOWED", "来源未获准提取和保留证据，或已撤销/到期", 403);
     const account = await tx.account.findUnique({ where: { id: input.accountId } });
     if (!account) throw new ContactError("NOT_FOUND", "账号不存在", 404);
@@ -52,7 +54,7 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
       if (existing) { ids.push(existing.id); continue; }
       const item = await tx.contactPoint.create({ data: {
         dedupeKey, type: candidate.type, rawValue: candidate.rawValue, normalizedValue: candidate.normalizedValue, expiresAt,
-        evidence: { create: { accountId: account.id, sourceId: source.id, policyVersion: source.policyVersion, sourceUrl,
+        evidence: { create: { accountId: account.id, sourceId: source.id, policyVersion: source.policyVersion, policySnapshotId: snapshot.id, sourceUrl,
           capturedAt, fieldLocation: `${input.fieldLocation} · ${candidate.locator}`, excerpt: candidate.excerpt } },
       } });
       await tx.auditEvent.create({ data: { actorId, action: "CONTACT_CANDIDATE_CREATED", targetId: item.id } });
@@ -68,7 +70,7 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
     await requireWriter(tx, actorId);
     const initial = await tx.contactPoint.findUnique({ where: { id: contactId }, include: { evidence: true } });
     if (!initial) throw new ContactError("NOT_FOUND", "联系项不存在", 404);
-    const source = await lockSource(tx, initial.evidence.sourceId);
+    const { source } = await lockSource(tx, initial.evidence.sourceId);
     await tx.$queryRaw`SELECT "id" FROM "ContactPoint" WHERE "id" = ${contactId}::uuid FOR UPDATE`;
     const current = await tx.contactPoint.findUniqueOrThrow({ where: { id: contactId }, include: { evidence: true } });
     if (current.version !== input.version) throw new ContactError("REVIEW_CONFLICT", "联系项已被其他操作更新，请刷新后再审核", 409);
@@ -92,7 +94,7 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
 }
 
 export const contactInclude = {
-  evidence: { include: { source: true, account: { select: { id: true, displayName: true, isDemo: true } } } },
+  evidence: { include: { source: true, policySnapshot: true, account: { select: { id: true, displayName: true, isDemo: true } } } },
   reviews: { orderBy: { version: "desc" }, take: 30, include: { reviewer: { select: { id: true, email: true } } } },
 } satisfies Prisma.ContactPointInclude;
 
@@ -100,7 +102,8 @@ type ContactRecord = Prisma.ContactPointGetPayload<{ include: typeof contactIncl
 
 export function contactDto(item: ContactRecord, role: Role) {
   const usable = contactUsable(item);
-  const visible = canMaintain(role) && extractionAllowed(item.evidence.source) && item.expiresAt > new Date() && item.evidence.policyVersion === item.evidence.source.policyVersion;
+  const visible = canMaintain(role) && extractionAllowed(item.evidence.source) && item.expiresAt > new Date() && item.evidence.policyVersion === item.evidence.source.policyVersion &&
+    !item.evidence.policySnapshot.isLegacy && item.evidence.policySnapshot.version === item.evidence.source.policyVersion;
   // Allowlist projection: no raw values hidden elsewhere in evidence, reasons or normalized keys.
   return { id: item.id, type: item.type, value: visible ? item.rawValue : "***", status: item.status, version: item.version,
     usable, masked: !visible, expiresAt: item.expiresAt, reviewedAt: item.reviewedAt, account: item.evidence.account,

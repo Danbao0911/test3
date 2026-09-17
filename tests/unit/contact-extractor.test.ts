@@ -74,6 +74,21 @@ describe("T04 deterministic contact extraction (synthetic fixtures only)", () =>
     expect(isSyntheticContact("PHONE", "+8613000000000")).toBe(false);
     expect(isSyntheticContact("CONTACT_URL", "https://example.com.invalid/contact")).toBe(false);
   });
+  it("fails closed for trailing invalidation and refusal notes", () => {
+    expect(extractContacts("官网联系页：https://example.com/contact（已失效）", "ACCOUNT_PROFILE")).toEqual([]);
+    expect(extractContacts("商务预约：https://example.com/book (do not contact)", "ACCOUNT_PROFILE")).toEqual([]);
+  });
+  it("fails closed when a cross-line note identifies third-party material", () => {
+    expect(extractContacts("商务联系页：这是第三方资料\n企业电话：+1 202 555 0100", "ACCOUNT_PROFILE")).toEqual([]);
+    expect(extractContacts("企业电话：+1 202 555 0100\n以下内容来自评论", "ACCOUNT_PROFILE")).toEqual([]);
+  });
+  it("preserves complete contact URLs, including semicolon parameters and hash routes", () => {
+    const semicolon = extractContacts("商务预约：https://example.com/book;service=trust", "ACCOUNT_PROFILE");
+    expect(semicolon[0]).toMatchObject({ rawValue: "https://example.com/book;service=trust", normalizedValue: "https://example.com/book;service=trust" });
+    const hashes = extractContacts("商务预约：https://example.com/#/consultation\n商务预约：https://example.com/#/board", "ACCOUNT_PROFILE");
+    expect(hashes.map(item => item.normalizedValue)).toEqual(["https://example.com/#/consultation", "https://example.com/#/board"]);
+    expect(hashes.map(item => item.locator)).toEqual(["第 1 行", "第 2 行"]);
+  });
 });
 
 const source = { status: "APPROVED", allowExtract: true, allowEvidenceText: true, permissionNote: "Synthetic permission", expiresAt: null, policyVersion: 3 };

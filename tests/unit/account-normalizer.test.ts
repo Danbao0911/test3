@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { normalizeProfileUrl, normalizeSourceUrl } from "../../src/lib/account-normalizer";
+import { normalizeContactTargetUrl, normalizeProfileUrl, normalizeSourceUrl } from "../../src/lib/account-normalizer";
 
 describe("normalizeProfileUrl", () => {
   beforeEach(() => { process.env.APP_MODE = "demo"; });
@@ -46,5 +46,11 @@ describe("normalizeSourceUrl", () => {
   it("rejects local and credential-bearing URLs", () => {
     expect(() => normalizeSourceUrl("https://localhost/source")).toThrow("本机");
     expect(() => normalizeSourceUrl("https://user:pass@example.com/source")).toThrow("用户名或密码");
+  });
+  it("keeps evidence fragments while account identities still drop profile fragments", () => {
+    expect(normalizeSourceUrl("https://example.com/about#business-contact")).toBe("https://example.com/about#business-contact");
+    expect(normalizeContactTargetUrl("https://example.com/book;service=trust")).toBe("https://example.com/book;service=trust");
+    expect(normalizeContactTargetUrl("https://example.com/#/consultation")).not.toBe(normalizeContactTargetUrl("https://example.com/#/board"));
+    expect(normalizeProfileUrl("YOUTUBE", "https://example.com/demo/youtube/001#profile")).toBe("https://example.com/demo/youtube/001");
   });
 });

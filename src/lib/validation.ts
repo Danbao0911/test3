@@ -49,6 +49,7 @@ export const sourceCreateSchema = z
 
 export const sourcePatchSchema = z
   .object({
+    expectedPolicyVersion: z.number().int().positive(),
     permissionNote: z.string().trim().max(2000).optional(),
     status: z.enum(sourceStatusValues).optional(),
     allowImport: z.boolean().optional(),

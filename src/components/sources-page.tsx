@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type Source = { id: string; name: string; type: string; status: string; permissionNote: string; allowImport: boolean; allowExtract: boolean; allowEvidenceText: boolean; retentionDays: number; policyVersion: number; expiresAt: string | null };
 
@@ -45,7 +46,7 @@ export default function SourcesClientPage({ canManage, synthetic }: { canManage:
       <div className="form-actions full"><button className="button" disabled={busy}>创建 DRAFT 来源</button></div>
     </form></section> : <p className="notice">当前角色可查看来源；仅管理员可修改策略。</p>}
     <section className="card"><div className="table-wrap"><table><thead><tr><th>名称 / 版本</th><th>状态 / 到期</th><th>依据</th><th>允许能力</th><th>操作</th></tr></thead><tbody>
-      {items.map(source => <SourceRow key={source.id} source={source} canManage={canManage} busy={busy} save={patch => write(`/api/sources/${source.id}`, "PATCH", patch)} />)}
+      {items.map(source => <SourceRow key={source.id} source={source} canManage={canManage} busy={busy} save={patch => write(`/api/sources/${source.id}`, "PATCH", { ...patch as Record<string, unknown>, expectedPolicyVersion: source.policyVersion })} />)}
       {!items.length && <tr><td colSpan={5} className="empty">暂无来源。</td></tr>}
     </tbody></table></div></section>
   </main>;
@@ -60,7 +61,7 @@ function SourceRow({ source, canManage, busy, save }: { source: Source; canManag
   const [days, setDays] = useState(source.retentionDays);
   const expired = source.expiresAt && new Date(source.expiresAt) <= new Date();
   return <tr data-source-id={source.id}>
-    <td>{source.name}<p className="muted small">策略 v{source.policyVersion}</p></td>
+    <td>{source.name}<p className="muted small">策略 v{source.policyVersion}</p><Link className="text-link small" href={`/sources/${source.id}/history`}>查看历史</Link></td>
     <td>{source.status}{expired ? " · 已到期" : ""}<p className="small">{source.expiresAt ?? "来源未设到期时间"}</p></td>
     <td className="pre-wrap" style={{ maxWidth: 360 }}>{source.permissionNote || "未填写"}</td>
     <td>录入：{source.allowImport ? "允许" : "关闭"}<br />联系提取：{source.allowExtract ? "允许" : "关闭"}<br />证据文本：{source.allowEvidenceText ? "允许" : "关闭"}<br />联系有效期：{source.retentionDays} 天</td>
