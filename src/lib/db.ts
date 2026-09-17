@@ -1,11 +1,12 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
+import { assertRuntimeConfiguration } from "./runtime-config";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL ?? "postgresql://test3:test3@127.0.0.1:5432/test3";
-  const adapter = new PrismaPg({ connectionString });
+  const { databaseTarget } = assertRuntimeConfiguration();
+  const adapter = new PrismaPg({ connectionString: databaseTarget.url.toString() });
   return new PrismaClient({ adapter });
 }
 

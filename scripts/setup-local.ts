@@ -13,8 +13,10 @@ try {
   await readFile(envPath, "utf8");
 } catch {
   const env = [
-    "DATABASE_URL=postgresql://test3:test3@127.0.0.1:5432/test3",
+    "DATABASE_URL=postgresql://test3:test3@127.0.0.1:5432/test3_demo",
     "APP_MODE=demo",
+    "APP_ORIGIN=http://127.0.0.1:3000",
+    "TEST_DATABASE_URL=",
     "AUTH_COOKIE_NAME=test3_session",
     "NEXT_PUBLIC_APP_NAME=专业服务账号与商务线索工作台",
     "",

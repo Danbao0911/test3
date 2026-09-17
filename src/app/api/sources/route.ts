@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { forbidden, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sourceCreateSchema } from "@/lib/validation";
+import { sourceTypeAllowed, RUNTIME_MODE } from "@/lib/runtime-config";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
   }
   const parsed = sourceCreateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "VALIDATION_ERROR", message: "来源字段格式错误" }, { status: 422 });
+  if (!sourceTypeAllowed(parsed.data.type)) return NextResponse.json({ error: "SOURCE_TYPE_NOT_ALLOWED", message: `${RUNTIME_MODE} 模式不能创建 ${parsed.data.type} 来源` }, { status: 403 });
   const source = await prisma.source.create({
     data: {
       name: parsed.data.name,

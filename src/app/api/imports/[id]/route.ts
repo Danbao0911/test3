@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { uuidSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,7 @@ export async function GET(_request: Request, { params }: Context) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   const { id } = await params;
+  if (!uuidSchema.safeParse(id).success) return NextResponse.json({ error: "NOT_FOUND", message: "导入批次不存在" }, { status: 404 });
   const batch = await prisma.importBatch.findFirst({
     where: { id, createdById: user.id },
     include: {

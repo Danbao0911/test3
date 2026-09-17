@@ -56,7 +56,9 @@ pnpm test:e2e
 pnpm build
 ```
 
-集成测试要求单独的、明确命名的测试数据库，通过 `TEST_DATABASE_URL` 提供；测试代码会拒绝非 `test`、`ci` 或 `e2e` 数据库。没有 Docker 或测试 PostgreSQL 时，集成测试会标记为 skipped，不能据此宣称通过。E2E 需要额外提供 `E2E_ADMIN_EMAIL` 和 `E2E_ADMIN_PASSWORD`。
+集成测试要求单独的、明确命名的测试数据库，通过 `TEST_DATABASE_URL`、`TEST_DATABASE_NAME`、`TEST_DATABASE_MODE=isolated` 和 `TEST_RUN_ID` 提供，并且 `DATABASE_URL` 必须逐字相同；测试代码会拒绝默认库、生产库、模糊的 `ci` 子串、非白名单主机和非当前运行 ID 的数据库。配置缺失或 PostgreSQL 不可用会直接失败，不能以 skipped 代替通过。CI 会为 verify 和 E2E 使用不同的本轮数据库；E2E 还需要临时的 `E2E_ADMIN_EMAIL` 和 `E2E_ADMIN_PASSWORD`。
+
+运行服务必须设置完整可信源 `APP_ORIGIN`，并显式选择 `APP_MODE=demo|test|production`。演示/测试模式只接受 `DEMO` 来源和合成 `example.com/demo/...` 数据；生产模式拒绝演示与测试数据库及演示来源。
 
 ## 安全边界
 

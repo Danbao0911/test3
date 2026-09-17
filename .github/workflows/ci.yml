@@ -17,28 +17,34 @@ jobs:
         env:
           POSTGRES_USER: test3
           POSTGRES_PASSWORD: test3
-          POSTGRES_DB: test3_ci
+          POSTGRES_DB: test3_ci_${{ github.run_id }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U test3 -d test3_ci"
+          --health-cmd "pg_isready -U test3 -d test3_ci_${{ github.run_id }}"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_ci
-      TEST_DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_ci
-      APP_MODE: demo
+      DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_ci_${{ github.run_id }}
+      TEST_DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_ci_${{ github.run_id }}
+      TEST_DATABASE_NAME: test3_ci_${{ github.run_id }}
+      TEST_DATABASE_MODE: isolated
+      TEST_DATABASE_ALLOWED_HOSTS: 127.0.0.1
+      TEST_RUN_ID: ${{ github.run_id }}
+      APP_MODE: test
+      APP_ORIGIN: http://127.0.0.1:3100
+      TEST_APP_ORIGIN: http://127.0.0.1:3100
       AUTH_COOKIE_NAME: test3_session
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.19.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm db:migrate
@@ -47,3 +53,58 @@ jobs:
       - run: pnpm test:unit
       - run: pnpm test:integration
       - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: test3
+          POSTGRES_PASSWORD: test3
+          POSTGRES_DB: test3_e2e_${{ github.run_id }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test3 -d test3_e2e_${{ github.run_id }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_e2e_${{ github.run_id }}
+      TEST_DATABASE_URL: postgresql://test3:test3@127.0.0.1:5432/test3_e2e_${{ github.run_id }}
+      TEST_DATABASE_NAME: test3_e2e_${{ github.run_id }}
+      TEST_DATABASE_MODE: isolated
+      TEST_DATABASE_ALLOWED_HOSTS: 127.0.0.1
+      TEST_RUN_ID: ${{ github.run_id }}
+      APP_MODE: test
+      APP_ORIGIN: http://127.0.0.1:3000
+      AUTH_COOKIE_NAME: test3_session
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:migrate
+      - run: pnpm setup:local
+      - run: pnpm admin:create
+      - name: Export temporary E2E admin credentials
+        run: node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(".local/admin-credentials.json", "utf8")); fs.appendFileSync(process.env.GITHUB_ENV, `E2E_ADMIN_EMAIL=${c.email}\nE2E_ADMIN_PASSWORD=${c.password}\n`);'
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Start application
+        run: pnpm dev > /tmp/test3-e2e.log 2>&1 & echo $! > /tmp/test3-e2e.pid
+      - name: Wait for application health
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/test3-e2e.log
+          exit 1
+      - run: pnpm test:e2e

@@ -1,11 +1,10 @@
 import path from "node:path";
 import { test, expect } from "@playwright/test";
+import { requireE2EConfig } from "../helpers/e2e-config";
 
-const email = process.env.E2E_ADMIN_EMAIL;
-const password = process.env.E2E_ADMIN_PASSWORD;
+const { email, password } = requireE2EConfig();
 
 test("登录—来源批准—90行导入—平台筛选—详情", async ({ page }) => {
-  test.skip(!email || !password, "未提供 E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD，未运行浏览器验收");
   await page.goto("/login");
   await page.getByLabel("管理员邮箱").fill(email!);
   await page.getByLabel("密码").fill(password!);
@@ -13,11 +12,15 @@ test("登录—来源批准—90行导入—平台筛选—详情", async ({ pag
   await expect(page).toHaveURL(/\/accounts$/);
   await page.goto("/sources");
   await page.getByLabel("来源名称").fill(`E2E 虚构来源 ${Date.now()}`);
+  await page.getByLabel("来源类型").selectOption("DEMO");
   await page.getByLabel("允许录入依据说明").fill("仅用于 E2E 隔离测试的虚构来源。");
   await page.getByRole("button", { name: "创建 DRAFT 来源" }).click();
-  await page.getByRole("button", { name: "批准录入" }).last().click();
+  const sourceRow = page.locator("tbody tr").filter({ hasText: /E2E 虚构来源/ }).last();
+  await expect(sourceRow).toContainText("DRAFT");
+  await sourceRow.getByRole("button", { name: "批准录入" }).click();
   await page.goto("/imports");
-  const sourceOption = page.locator("#source option").filter({ hasText: /E2E 虚构来源/ }).last();
+  await expect(page.getByLabel("获准数据来源").locator("option").filter({ hasText: /E2E 虚构来源/ }).last()).toBeAttached();
+  const sourceOption = page.getByLabel("获准数据来源").locator("option").filter({ hasText: /E2E 虚构来源/ }).last();
   await page.getByLabel("获准数据来源").selectOption((await sourceOption.getAttribute("value"))!);
   await page.getByLabel("CSV 文件").setInputFiles(path.join(process.cwd(), "tests/fixtures/accounts-90.csv"));
   await page.getByRole("button", { name: "预览导入" }).click();

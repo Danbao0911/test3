@@ -9,7 +9,7 @@ const links = [
   ["数据来源", "/sources"],
 ] as const;
 
-export function Navigation({ email }: { email: string }) {
+export function Navigation({ email, mode }: { email: string; mode: "demo" | "production" | "test" }) {
   const pathname = usePathname();
   const router = useRouter();
   async function logout() {
@@ -24,7 +24,7 @@ export function Navigation({ email }: { email: string }) {
         {links.map(([label, href]) => <Link key={href} className={`nav-link ${pathname.startsWith(href) ? "active" : ""}`} href={href}>{label}</Link>)}
         <button className="nav-link" onClick={logout}>退出登录</button>
       </nav>
-      <div className="user-menu"><span>{email}</span><span className="badge neutral">内部工作区</span></div>
+      <div className="user-menu"><span>{email}</span><span className={`badge ${mode === "production" ? "success" : "warning"}`}>{mode === "production" ? "生产模式" : mode === "test" ? "测试模式" : "演示模式"}</span></div>
     </header>
   );
 }

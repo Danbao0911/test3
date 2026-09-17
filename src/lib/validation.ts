@@ -6,7 +6,7 @@ export const sourceStatusValues = ["DRAFT", "APPROVED", "REVOKED"] as const;
 
 const optionalText = (max: number) =>
   z.preprocess(
-    (value) => (value === "" || value === undefined ? null : value),
+    (value) => (value === "" || value === undefined ? null : typeof value === "string" ? value.trim() : value),
     z.string().max(max).nullable(),
   );
 
@@ -14,8 +14,8 @@ export const accountInputSchema = z
   .object({
     platform: z.enum(platformValues),
     nativeId: z.preprocess(
-      (value) => (value === "" || value === undefined ? null : value),
-      z.string().trim().max(200).nullable(),
+      (value) => (value === "" || value === undefined || typeof value === "string" && value.trim() === "" ? null : typeof value === "string" ? value.trim() : value),
+      z.string().max(200).nullable(),
     ),
     displayName: z.string().trim().min(1).max(120),
     profileUrl: z.string().trim().min(1).max(2048),
@@ -63,6 +63,8 @@ export const loginSchema = z
     password: z.string().min(1).max(200),
   })
   .strict();
+
+export const uuidSchema = z.string().uuid();
 
 export function validationMessage(error: z.ZodError) {
   const issue = error.issues[0];

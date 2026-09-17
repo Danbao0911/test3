@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import type { Platform } from "../generated/prisma/client";
+import { isSyntheticMode } from "./runtime-config";
 
 export class UrlValidationError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -9,10 +10,17 @@ export class UrlValidationError extends Error {
 }
 
 const platformHosts: Record<Platform, string[]> = {
-  XIAOHONGSHU: ["xiaohongshu.com"],
-  YOUTUBE: ["youtube.com", "youtu.be"],
-  X: ["x.com", "twitter.com"],
-  DOUYIN: ["douyin.com"],
+  XIAOHONGSHU: ["xiaohongshu.com", "www.xiaohongshu.com"],
+  YOUTUBE: ["youtube.com", "www.youtube.com"],
+  X: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+  DOUYIN: ["douyin.com", "www.douyin.com"],
+};
+
+const canonicalHosts: Record<Platform, string> = {
+  XIAOHONGSHU: "xiaohongshu.com",
+  YOUTUBE: "youtube.com",
+  X: "x.com",
+  DOUYIN: "douyin.com",
 };
 
 const trackingParams = new Set([
@@ -27,13 +35,14 @@ const trackingParams = new Set([
 ]);
 
 function isAllowedHost(hostname: string, allowedHosts: string[]) {
-  return allowedHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+  return allowedHosts.includes(hostname);
 }
 
 function rejectUnsafeUrl(url: URL) {
   if (url.protocol !== "https:") throw new UrlValidationError("URL_SCHEME", "只接受 HTTPS 链接");
   if (url.username || url.password) throw new UrlValidationError("URL_CREDENTIALS", "链接不能包含用户名或密码");
-  if (isIP(url.hostname) || url.hostname === "localhost" || url.hostname.endsWith(".localhost")) {
+  const hostForIpCheck = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(hostForIpCheck) || url.hostname === "localhost" || url.hostname.endsWith(".localhost")) {
     throw new UrlValidationError("URL_PRIVATE_HOST", "链接不能指向本机或 IP 地址");
   }
   if (url.port && url.port !== "443") throw new UrlValidationError("URL_PORT", "链接端口不符合要求");
@@ -51,13 +60,16 @@ function cleanUrl(url: URL) {
 }
 
 function isAccountPath(platform: Platform, pathname: string) {
-  const path = pathname.toLowerCase();
-  if (platform === "XIAOHONGSHU") return /^\/user\/profile\/[^/]+/.test(path);
+  const segments = pathname.split("/").filter(Boolean);
+  if (platform === "XIAOHONGSHU") return segments.length === 3 && segments[0] === "user" && segments[1] === "profile" && Boolean(segments[2]);
   if (platform === "YOUTUBE") {
-    return (/^\/(channel|c|user)\/[^/]+/.test(path) || /^\/@[^/]+/.test(path)) && !/(watch|shorts|playlist|results|live)/.test(path);
+    return (segments.length === 2 && ["channel", "c", "user"].includes(segments[0]) && Boolean(segments[1])) || (segments.length === 1 && /^@[^/]+$/.test(segments[0] ?? ""));
   }
-  if (platform === "X") return /^\/[a-z0-9_]{1,15}\/?$/i.test(path) && !/^(\/search|\/explore|\/home|\/i)(\/|$)/.test(path);
-  return /^\/user\/[^/]+/.test(path) && !/^\/(video|search|discover)(\/|$)/.test(path);
+  if (platform === "X") {
+    const reserved = new Set(["search", "explore", "home", "i", "settings", "notifications", "messages"]);
+    return segments.length === 1 && /^[A-Za-z0-9_]{1,15}$/.test(segments[0] ?? "") && !reserved.has((segments[0] ?? "").toLowerCase());
+  }
+  return segments.length === 2 && segments[0] === "user" && Boolean(segments[1]);
 }
 
 export function normalizeProfileUrl(platform: Platform, rawUrl: string) {
@@ -69,14 +81,14 @@ export function normalizeProfileUrl(platform: Platform, rawUrl: string) {
   }
   rejectUnsafeUrl(url);
   const hostname = url.hostname.toLowerCase();
-  const isDemoUrl = process.env.APP_MODE === "demo" && hostname === "example.com" && url.pathname.startsWith("/demo/");
+  const isDemoUrl = isSyntheticMode() && hostname === "example.com" && url.pathname.startsWith("/demo/");
   if (!isDemoUrl && !isAllowedHost(hostname, platformHosts[platform])) {
     throw new UrlValidationError("URL_DOMAIN", "链接不是该平台允许的主页域名");
   }
   if (!isDemoUrl && !isAccountPath(platform, url.pathname)) {
     throw new UrlValidationError("URL_NOT_PROFILE", "链接必须是账号主页，不能是帖子、视频或搜索页");
   }
-  url.hostname = hostname;
+  url.hostname = isDemoUrl ? hostname : canonicalHosts[platform];
   return cleanUrl(url);
 }
 

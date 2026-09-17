@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "./db";
+import { getTrustedOrigin, hashRateLimitKey } from "./runtime-config";
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 export const SESSION_COOKIE = process.env.AUTH_COOKIE_NAME ?? "test3_session";
@@ -77,11 +78,10 @@ export function isSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return false;
   try {
-    const originUrl = new URL(origin);
-    const forwardedHost = request.headers.get("x-forwarded-host");
-    const requestHost = forwardedHost ?? request.headers.get("host") ?? new URL(request.url).host;
-    return originUrl.host === requestHost;
+    return new URL(origin).origin === getTrustedOrigin();
   } catch {
     return false;
   }
 }
+
+export { hashRateLimitKey };

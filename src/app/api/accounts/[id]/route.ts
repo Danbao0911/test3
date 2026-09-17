@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { accountPatchSchema, validationMessage } from "@/lib/validation";
+import { accountPatchSchema, uuidSchema, validationMessage } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,7 @@ export async function GET(_request: Request, { params }: Context) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   const { id } = await params;
+  if (!uuidSchema.safeParse(id).success) return NextResponse.json({ error: "NOT_FOUND", message: "账号不存在" }, { status: 404 });
   const account = await prisma.account.findUnique({
     where: { id },
     include: { source: true },
@@ -24,6 +25,7 @@ export async function PATCH(request: Request, { params }: Context) {
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
   const { id } = await params;
+  if (!uuidSchema.safeParse(id).success) return NextResponse.json({ error: "NOT_FOUND", message: "账号不存在" }, { status: 404 });
   let body: unknown;
   try {
     body = await request.json();
