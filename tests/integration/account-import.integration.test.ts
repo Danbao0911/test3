@@ -91,6 +91,7 @@ function accountBody(sourceId: string, suffix: string, nativeId = `r1-${suffix}`
 
 describe("CODEX-001-R1 real HTTP account/import contract", () => {
   let primarySourceId = "";
+  let accountSourceId = "";
   let firstBatchId = "";
 
   beforeAll(async () => {
@@ -170,8 +171,8 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   });
 
   it("T04 创建同名不同主页账号不会错误合并", async () => {
-    primarySourceId = await createSource(`R1 primary ${randomUUID()}`);
-    const first = accountBody(primarySourceId, `same-a-${randomUUID()}`, `same-native-a-${randomUUID()}`);
+    accountSourceId = await createSource(`R1 account API ${randomUUID()}`);
+    const first = accountBody(accountSourceId, `same-a-${randomUUID()}`, `same-native-a-${randomUUID()}`);
     const second = { ...first, nativeId: `same-native-b-${randomUUID()}`, profileUrl: `https://example.com/demo/x/same-b-${randomUUID()}` };
     first.displayName = "相同名称"; second.displayName = "相同名称";
     const one = await request("/api/accounts", { method: "POST", ...jsonBody(first) });
@@ -180,7 +181,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   });
 
   it("T05 单条重复返回 existingAccountId", async () => {
-    const body = accountBody(primarySourceId, `single-duplicate-${randomUUID()}`);
+    const body = accountBody(accountSourceId, `single-duplicate-${randomUUID()}`);
     const first = await request("/api/accounts", { method: "POST", ...jsonBody(body) });
     expect(first.response.status).toBe(201);
     const duplicate = await request("/api/accounts", { method: "POST", ...jsonBody(body) });
@@ -188,8 +189,8 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   });
 
   it("T06 平台身份 ID 与主页分别命中不同账号时返回 409", async () => {
-    const a = accountBody(primarySourceId, `identity-a-${randomUUID()}`, `identity-a-${randomUUID()}`);
-    const b = accountBody(primarySourceId, `identity-b-${randomUUID()}`, `identity-b-${randomUUID()}`);
+    const a = accountBody(accountSourceId, `identity-a-${randomUUID()}`, `identity-a-${randomUUID()}`);
+    const b = accountBody(accountSourceId, `identity-b-${randomUUID()}`, `identity-b-${randomUUID()}`);
     const first = await request("/api/accounts", { method: "POST", ...jsonBody(a) });
     const second = await request("/api/accounts", { method: "POST", ...jsonBody(b) });
     expect(first.response.status).toBe(201); expect(second.response.status).toBe(201);
@@ -199,6 +200,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   });
 
   it("T07 首次 90 行导入得到 60 新增、20 重复、10 失败", async () => {
+    primarySourceId = await createSource(`R1 import ${randomUUID()}`);
     const result = await request("/api/imports", { method: "POST", headers: { "Idempotency-Key": `r1-first-${randomUUID()}` }, body: csvForm(primarySourceId) });
     expect(result.response.status).toBe(201); expect(result.data.item).toMatchObject({ totalRows: 90, createdCount: 60, duplicateCount: 20, invalidCount: 10, replayed: false });
     firstBatchId = result.data.item.id; createdBatchIds.push(firstBatchId);
@@ -240,13 +242,13 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect(left.response.status).toBe(201); expect(right.response.status).toBe(201);
     expect(left.data.item).toMatchObject({ createdCount: 0, duplicateCount: 80, invalidCount: 10 }); expect(right.data.item).toMatchObject({ createdCount: 0, duplicateCount: 80, invalidCount: 10 });
     createdBatchIds.push(left.data.item.id, right.data.item.id);
-    expect(await prisma.account.count({ where: { sourceId: primarySourceId } })).toBe(65);
+    expect(await prisma.account.count({ where: { sourceId: primarySourceId } })).toBe(60);
   });
 
   it("T12 账号列表支持平台筛选和分页", async () => {
-    const filtered = await request("/api/accounts?platform=X&page=1&pageSize=10");
+    const filtered = await request(`/api/accounts?platform=X&sourceId=${primarySourceId}&page=1&pageSize=10`);
     expect(filtered.response.status).toBe(200); expect(filtered.data.total).toBe(15); expect(filtered.data.items).toHaveLength(10); expect(filtered.data.page).toBe(1);
-    const next = await request("/api/accounts?platform=X&page=2&pageSize=10");
+    const next = await request(`/api/accounts?platform=X&sourceId=${primarySourceId}&page=2&pageSize=10`);
     expect(next.response.status).toBe(200); expect(next.data.items).toHaveLength(5);
   });
 
