@@ -39,7 +39,8 @@ test("登录—来源批准—90行导入—平台筛选—详情", async ({ pag
   await expect(page.locator(".stat-value").nth(1)).toHaveText("60");
   await expect(page.locator(".stat-value").nth(2)).toHaveText("20");
   await expect(page.locator(".stat-value").nth(3)).toHaveText("10");
-  await page.goto(`/accounts?sourceId=${sourceId}`);
+  await page.goto("/accounts");
+  await page.getByLabel("数据来源", { exact: true }).selectOption(sourceId!);
   await page.getByLabel("平台").selectOption("X");
   await page.getByRole("button", { name: "筛选" }).click();
   await expect(page.getByText("共 15 条")).toBeVisible();
