@@ -87,6 +87,7 @@ test("两个浏览器上下文编辑同一来源时拒绝旧策略覆盖", async
     await rowA.getByRole("button", { name: "批准录入" }).click();
     await expect(rowA).toContainText("APPROVED");
     const sourceId = await rowA.getAttribute("data-source-id");
+    await login(second);
     await second.goto("/sources");
     const rowB = second.locator(`tr[data-source-id="${sourceId}"]`);
     await expect(rowB).toContainText("策略 v2");

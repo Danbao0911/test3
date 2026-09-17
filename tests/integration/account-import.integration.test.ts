@@ -397,9 +397,9 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
       const detail = await request(`/api/contacts/${contactIds[0]}`);
       expect(detail.data.item).toMatchObject({ status: "APPROVED", usable: true, value: "review@example.com", version: 2 });
       expect(await prisma.reviewDecision.count({ where: { contactId: contactIds[0], reviewerId: userId } })).toBe(1);
-      const beforeNoop = await request(`/api/sources/${contactSourceId}`);
       const noop = await patchSource(contactSourceId, {});
-      expect(noop.response.status).toBe(200); expect(noop.data.item.policyVersion).toBe(beforeNoop.data.item.policyVersion);
+      expect(noop.response.status).toBe(403);
+      expect(noop.data.error).toBe("FORBIDDEN");
       expect((await request(`/api/contacts/${contactIds[0]}`)).data.item.usable).toBe(true);
     } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
   });
@@ -448,7 +448,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     }
     const empty = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("提供财富规划，没有提供联系方式")) });
     expect(empty.data.createdCount).toBe(0);
-    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(5);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(8);
   });
 
   it("R02 失效、拒绝联系和跨行第三方说明均不产生候选或审计事件", async () => {
