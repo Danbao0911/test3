@@ -11,5 +11,6 @@ dist/
 playwright-report/
 test-results/
 *.log
+tsconfig.tsbuildinfo
 src/generated/prisma/
 prisma/generated/
