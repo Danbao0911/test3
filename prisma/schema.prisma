@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SourceType {
+  DEMO
+  AUTHORIZED_MANUAL
+}
+
+enum SourceStatus {
+  DRAFT
+  APPROVED
+  REVOKED
+}
+
+enum Platform {
+  XIAOHONGSHU
+  YOUTUBE
+  X
+  DOUYIN
+}
+
+enum ImportRowStatus {
+  CREATED
+  DUPLICATE
+  INVALID
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  email         String         @unique @db.VarChar(320)
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  sessions      Session[]
+  importBatches  ImportBatch[]
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  tokenHash  String   @unique @db.VarChar(64)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Source {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String       @db.VarChar(160)
+  type           SourceType
+  status         SourceStatus @default(DRAFT)
+  permissionNote String       @default("") @db.VarChar(2000)
+  allowImport    Boolean      @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  accounts       Account[]
+  importBatches  ImportBatch[]
+
+  @@index([status, allowImport])
+  @@index([expiresAt])
+}
+
+model Account {
+  id                    String      @id @default(uuid()) @db.Uuid
+  platform              Platform
+  nativeId              String?     @db.VarChar(200)
+  displayName           String      @db.VarChar(120)
+  profileUrl            String      @db.VarChar(2048)
+  normalizedProfileUrl  String      @db.VarChar(2048)
+  organization          String?     @db.VarChar(200)
+  serviceTags           String[]    @db.Text
+  region                String?     @db.VarChar(100)
+  sourceId              String      @db.Uuid
+  sourceUrl             String      @db.VarChar(2048)
+  capturedAt            DateTime
+  isDemo                Boolean     @default(false)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  source                Source      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  importRowResults      ImportRowResult[]
+
+  @@unique([platform, normalizedProfileUrl])
+  @@unique([platform, nativeId])
+  @@index([platform, createdAt, id])
+  @@index([sourceId, createdAt])
+}
+
+model ImportBatch {
+  id              String            @id @default(uuid()) @db.Uuid
+  createdById     String            @db.Uuid
+  sourceId        String            @db.Uuid
+  idempotencyKey  String            @db.VarChar(200)
+  payloadHash     String            @db.VarChar(64)
+  totalRows       Int
+  createdCount    Int               @default(0)
+  duplicateCount  Int               @default(0)
+  invalidCount    Int               @default(0)
+  createdAt       DateTime          @default(now())
+  createdBy       User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  source          Source            @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  rows            ImportRowResult[]
+
+  @@unique([createdById, idempotencyKey])
+  @@index([createdById, createdAt])
+  @@index([sourceId, createdAt])
+}
+
+model ImportRowResult {
+  id           String          @id @default(uuid()) @db.Uuid
+  batchId      String          @db.Uuid
+  rowNumber    Int
+  status       ImportRowStatus
+  accountId    String?         @db.Uuid
+  errorCode    String?         @db.VarChar(80)
+  errorMessage String?         @db.VarChar(500)
+  batch        ImportBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  account      Account?        @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+}
