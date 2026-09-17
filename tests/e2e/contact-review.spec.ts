@@ -99,7 +99,7 @@ test("两个浏览器上下文编辑同一来源时拒绝旧策略覆盖", async
     await expect(rowB).toContainText("联系提取：允许");
     await rowA.getByLabel("联系有效天数").fill("45");
     await rowA.getByRole("button", { name: "保存策略" }).click();
-    await expect(page.getByRole("alert")).toContainText("策略已被其他管理员更新");
+    await expect(page.locator("div.notice.error[role='alert']")).toContainText("策略已被其他管理员更新");
     await expect(rowA).toContainText("联系提取：关闭");
     await expect(rowA).toContainText("策略 v2");
     await second.reload();
