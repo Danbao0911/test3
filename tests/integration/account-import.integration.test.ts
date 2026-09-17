@@ -17,6 +17,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: data
 const createdSourceIds: string[] = [];
 const createdBatchIds: string[] = [];
 let server: ChildProcess | undefined;
+const serverOutput: string[] = [];
 let userId = "";
 let cookie = "";
 let adminEmail = "";
@@ -101,9 +102,11 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
       env: { ...process.env, APP_MODE: "test", APP_ORIGIN: baseUrl, DATABASE_URL: database.url, TEST_DATABASE_URL: database.url, TEST_DATABASE_NAME: database.databaseName, TEST_DATABASE_MODE: "isolated", TEST_RUN_ID: runId, AUTH_COOKIE_NAME: "test3_session" },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    server.stdout?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
+    server.stderr?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
     await waitForHealth();
     const login = await request("/api/auth/login", { method: "POST", ...jsonBody({ email: adminEmail, password }) }, false);
-    expect(login.response.status).toBe(200);
+    expect(login.response.status, serverOutput.join("").slice(-8_000)).toBe(200);
     expect(cookie).toContain("test3_session=");
   }, 120_000);
 
