@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
+import { Prisma } from "@/generated/prisma/client";
 import { createSession, hashRateLimitKey, isSameOrigin, setSessionCookie } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { loginSchema } from "@/lib/validation";
@@ -50,7 +51,10 @@ export async function POST(request: Request) {
     setSessionCookie(response, session.token, session.expiresAt);
     return response;
   } catch (error) {
-    console.error("[auth-login-database-error]", error instanceof Error ? error.name : "unknown");
+    if (process.env.APP_MODE === "test") {
+      const diagnostic = error instanceof Prisma.PrismaClientKnownRequestError ? `${error.code}: ${error.message}` : error instanceof Error ? `${error.name}: ${error.message}` : "unknown";
+      console.error("[auth-login-database-error]", diagnostic);
+    }
     return NextResponse.json({ error: "DATABASE_ERROR", message: "登录服务暂不可用，请稍后重试" }, { status: 503 });
   }
 }
