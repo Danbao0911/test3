@@ -40,11 +40,15 @@ export function isSyntheticContact(type: ContactKind, value: string) {
 /** Conservative labelled-field grammar. It deliberately does not infer ownership. */
 export function extractContacts(text: string, context: TextContext): Candidate[] {
   if (context !== "ACCOUNT_PROFILE") return [];
+  const segments = text.split(/\r?\n|[；;]/);
+  // Context markers outside a labelled value taint the supplied block. Words in a
+  // syntactically valid address (friend@..., invalid@...) are not context labels.
+  if (segments.some(segment => !labels.some(([, pattern]) => pattern.test(segment.trim())) && unsafeContext.test(segment))) return [];
   const found = new Map<string, Candidate>();
   let offset = 0;
-  for (const segment of text.split(/\r?\n|[；;]/)) {
+  for (const segment of segments) {
     const line = segment.trim();
-    if (line.length <= 300 && !unsafeContext.test(line)) {
+    if (line.length <= 300 && !unsafeContext.test(line.split(/[:：]/, 1)[0])) {
       for (const [type, pattern] of labels) {
         const match = line.match(pattern);
         if (!match) continue;

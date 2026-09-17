@@ -390,7 +390,8 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     const large = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), text: "a".repeat(33000) }) });
     expect(large.response.status).toBe(413);
     for (const patch of [{ sourceUrl: "https://[::1]/proof" }, { capturedAt: new Date(Date.now() + 86400000).toISOString() }, { capturedAt: new Date(0).toISOString() }, { text: "商务邮箱：nobody@invalid.invalid" }]) {
-      expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), ...patch }) })).response.status).toBe(422);
+      const result = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), ...patch }) });
+      expect(result.response.status, `invalid field: ${Object.keys(patch).join(",")}; code: ${result.data.error}`).toBe(422);
     }
     expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), accountId: randomUUID() }) })).response.status).toBe(404);
     const different = await createSource(`different ${randomUUID()}`);

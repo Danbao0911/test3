@@ -10,6 +10,8 @@ const positives: Array<[string, ContactKind, string]> = [
   ["Business inquiries: hello+team@example.net", "EMAIL", "hello+team@example.net"],
   ["本公司业务邮箱：team@example.com", "EMAIL", "team@example.com"],
   ["partnership email: partner@example.com", "EMAIL", "partner@example.com"],
+  ["商务邮箱：friend@example.com", "EMAIL", "friend@example.com"],
+  ["商务邮箱：invalid@example.com", "EMAIL", "invalid@example.com"],
   ["商务微信：demo_team", "WECHAT", "demo_team"],
   ["合作微信: demo_Abc123", "WECHAT", "demo_Abc123"],
   ["business wechat: demo_team-1", "WECHAT", "demo_team-1"],
@@ -39,6 +41,7 @@ const negatives = [
   "官网联系页：http://example.com/contact", "官网联系页：https://localhost/contact", "官网联系页：https://[::1]/contact",
   "官网联系页：https://127.0.0.1/contact", "官网联系页：https://user:pass@example.com/contact", "官网联系页：javascript:alert(1)",
   "商务邮箱：<script>alert(1)</script>", "请猜测公司邮箱", "谢绝联系；暂无联系信息", "商务邮箱：team@example.com（示例格式）",
+  "第三方资料\n商务邮箱：third@example.com", "以下为评论内容\n商务邮箱：comment@example.com",
 ];
 
 describe("T04 deterministic contact extraction (synthetic fixtures only)", () => {
