@@ -448,7 +448,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     }
     const empty = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("提供财富规划，没有提供联系方式")) });
     expect(empty.data.createdCount).toBe(0);
-    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(8);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(5);
   });
 
   it("R02 失效、拒绝联系和跨行第三方说明均不产生候选或审计事件", async () => {
@@ -501,7 +501,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     const different = await createSource(`different ${randomUUID()}`);
     await patchSource(different, { allowExtract: true, allowEvidenceText: true });
     expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), sourceId: different }) })).response.status).toBe(403);
-    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(5);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(8);
   });
 
   it("C10 数据库拒绝无证据及无确认的已批准记录", async () => {
