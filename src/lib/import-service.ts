@@ -155,7 +155,7 @@ function shouldRetry(error: unknown) {
 }
 
 async function lockKey(tx: DbClient, key: string) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))::text AS locked`;
 }
 
 async function lockKeys(tx: DbClient, keys: string[]) {

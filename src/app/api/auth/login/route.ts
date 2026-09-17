@@ -12,7 +12,7 @@ async function consumeAccountAttempt(email: string) {
   const now = new Date();
   const windowStart = new Date(now.getTime() - 5 * 60 * 1000);
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:login:${keyHash}`}))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:login:${keyHash}`}))::text AS locked`;
     const current = await tx.loginThrottle.findUnique({ where: { keyHash } });
     if (!current || current.windowStartedAt <= windowStart) {
       await tx.loginThrottle.upsert({ where: { keyHash }, update: { attemptCount: 1, windowStartedAt: now }, create: { keyHash, attemptCount: 1, windowStartedAt: now } });
