@@ -33,7 +33,7 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
     if (!sourceTypeAllowed(source.type) || !extractionAllowed(source)) throw new ContactError("SOURCE_NOT_ALLOWED", "来源未获准提取和保留证据，或已撤销/到期", 403);
     const account = await tx.account.findUnique({ where: { id: input.accountId } });
     if (!account) throw new ContactError("NOT_FOUND", "账号不存在", 404);
-    if (!account.isDemo || account.sourceId !== source.id) throw new ContactError("SOURCE_MISMATCH", "当前阶段只能使用该演示账号登记的同一来源", 403);
+    if (!account.isDemo || !isSyntheticContact("CONTACT_URL", account.profileUrl) || account.sourceId !== source.id) throw new ContactError("SOURCE_MISMATCH", "当前阶段只能使用该虚构账号登记的同一来源", 403);
     let sourceUrl: string;
     try { sourceUrl = normalizeSourceUrl(input.sourceUrl); } catch { throw new ContactError("INVALID_SOURCE_URL", "证据地址必须是安全的 HTTPS 链接"); }
     if (!isSyntheticContact("CONTACT_URL", sourceUrl)) throw new ContactError("SYNTHETIC_ONLY", "演示证据链接只允许 example.com/net/org");

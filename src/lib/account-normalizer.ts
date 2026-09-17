@@ -82,6 +82,7 @@ export function normalizeProfileUrl(platform: Platform, rawUrl: string) {
   rejectUnsafeUrl(url);
   const hostname = url.hostname.toLowerCase();
   const isDemoUrl = isSyntheticMode() && hostname === "example.com" && url.pathname.startsWith("/demo/");
+  if (isSyntheticMode() && !isDemoUrl) throw new UrlValidationError("SYNTHETIC_ONLY", "演示/测试模式只接受 example.com/demo/ 下的虚构主页");
   if (!isDemoUrl && !isAllowedHost(hostname, platformHosts[platform])) {
     throw new UrlValidationError("URL_DOMAIN", "链接不是该平台允许的主页域名");
   }
@@ -101,5 +102,6 @@ export function normalizeSourceUrl(rawUrl: string) {
   }
   rejectUnsafeUrl(url);
   url.hostname = url.hostname.toLowerCase();
+  if (isSyntheticMode() && !["example.com", "example.net", "example.org"].includes(url.hostname)) throw new UrlValidationError("SYNTHETIC_ONLY", "演示/测试证据来源只接受 example.com/net/org");
   return cleanUrl(url);
 }

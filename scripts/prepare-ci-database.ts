@@ -13,7 +13,9 @@ async function main() {
     await client.query("CREATE ROLE test3 LOGIN PASSWORD 'test3' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT");
     // Name is already restricted to [a-z0-9_-] by the pre-connection guard.
     await client.query(`REVOKE ALL ON DATABASE "${config.databaseName}" FROM PUBLIC`);
-    await client.query(`GRANT CONNECT ON DATABASE "${config.databaseName}" TO test3`);
+    // Initial migration contains CREATE SCHEMA IF NOT EXISTS; PostgreSQL still checks database CREATE.
+    // This is scoped to this ephemeral database, not the role-level CREATEDB privilege.
+    await client.query(`GRANT CONNECT, CREATE ON DATABASE "${config.databaseName}" TO test3`);
     await client.query("REVOKE ALL ON SCHEMA public FROM PUBLIC");
     await client.query("GRANT USAGE, CREATE ON SCHEMA public TO test3");
     console.log("隔离 CI 数据库已配置非特权测试角色。");
