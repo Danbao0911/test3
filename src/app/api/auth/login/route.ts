@@ -49,7 +49,8 @@ export async function POST(request: Request) {
     const response = NextResponse.json({ user: { id: user.id, email: user.email } });
     setSessionCookie(response, session.token, session.expiresAt);
     return response;
-  } catch {
+  } catch (error) {
+    console.error("[auth-login-database-error]", error instanceof Error ? error.name : "unknown");
     return NextResponse.json({ error: "DATABASE_ERROR", message: "登录服务暂不可用，请稍后重试" }, { status: 503 });
   }
 }
