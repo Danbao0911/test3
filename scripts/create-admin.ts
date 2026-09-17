@@ -21,8 +21,8 @@ async function main() {
     const passwordHash = await bcrypt.hash(credentials.password, 12);
     await prisma.user.upsert({
       where: { email: credentials.email.toLowerCase() },
-      update: { passwordHash },
-      create: { email: credentials.email.toLowerCase(), passwordHash },
+      update: { passwordHash, role: "ADMIN" },
+      create: { email: credentials.email.toLowerCase(), passwordHash, role: "ADMIN" },
     });
     console.log(`管理员已就绪：${credentials.email.toLowerCase()}`);
   } finally {

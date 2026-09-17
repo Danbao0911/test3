@@ -31,13 +31,38 @@ enum ImportRowStatus {
   INVALID
 }
 
+enum UserRole {
+  ADMIN
+  REVIEWER
+  VIEWER
+}
+
+enum ContactType {
+  EMAIL
+  WECHAT
+  PHONE
+  CONTACT_URL
+  BOOKING_URL
+}
+
+enum ContactStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INVALID
+}
+
 model User {
   id            String         @id @default(uuid()) @db.Uuid
   email         String         @unique @db.VarChar(320)
   passwordHash  String
+  role          UserRole       @default(VIEWER)
   createdAt     DateTime       @default(now())
   sessions      Session[]
   importBatches  ImportBatch[]
+  reviews        ReviewDecision[]
+  auditEvents    AuditEvent[]
+  policyChanges  Source[]       @relation("PolicyActor")
 }
 
 model Session {
@@ -68,11 +93,18 @@ model Source {
   status         SourceStatus @default(DRAFT)
   permissionNote String       @default("") @db.VarChar(2000)
   allowImport    Boolean      @default(false)
+  allowExtract   Boolean      @default(false)
+  allowEvidenceText Boolean   @default(false)
+  retentionDays  Int          @default(30)
+  policyVersion  Int          @default(1)
+  policyChangedById String?   @db.Uuid
+  policyChangedBy User?       @relation("PolicyActor", fields: [policyChangedById], references: [id], onDelete: Restrict)
   expiresAt      DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   accounts       Account[]
   importBatches  ImportBatch[]
+  evidence       Evidence[]
 
   @@index([status, allowImport])
   @@index([expiresAt])
@@ -96,6 +128,7 @@ model Account {
   updatedAt             DateTime    @updatedAt
   source                Source      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   importRowResults      ImportRowResult[]
+  evidence              Evidence[]
 
   @@unique([platform, normalizedProfileUrl])
   @@unique([platform, nativeId])
@@ -136,4 +169,72 @@ model ImportRowResult {
 
   @@unique([batchId, rowNumber])
   @@index([batchId, status])
+}
+
+// Immutable, field-specific excerpts only; full input text is never persisted.
+model Evidence {
+  id              String   @id @default(uuid()) @db.Uuid
+  accountId       String   @db.Uuid
+  sourceId        String   @db.Uuid
+  policyVersion   Int
+  sourceUrl       String   @db.VarChar(2048)
+  capturedAt      DateTime
+  fieldLocation   String   @db.VarChar(240)
+  excerpt         String   @db.VarChar(300)
+  createdAt       DateTime @default(now())
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  source          Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  contact         ContactPoint?
+
+  @@index([accountId, createdAt])
+  @@index([sourceId, policyVersion])
+}
+
+model ContactPoint {
+  id                  String        @id @default(uuid()) @db.Uuid
+  evidenceId          String        @unique @db.Uuid
+  dedupeKey           String        @unique @db.VarChar(64)
+  type                ContactType
+  rawValue            String        @db.VarChar(2048)
+  normalizedValue     String        @db.VarChar(2048)
+  status              ContactStatus @default(PENDING)
+  ownershipConfirmed  Boolean       @default(false)
+  businessConfirmed   Boolean       @default(false)
+  version             Int           @default(1)
+  expiresAt           DateTime
+  reviewedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  evidence            Evidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  reviews             ReviewDecision[]
+
+  @@index([status, createdAt, id])
+  @@index([expiresAt])
+}
+
+model ReviewDecision {
+  id                  String        @id @default(uuid()) @db.Uuid
+  contactId           String        @db.Uuid
+  reviewerId          String        @db.Uuid
+  status              ContactStatus
+  reason              String        @db.VarChar(500)
+  ownershipConfirmed  Boolean
+  businessConfirmed   Boolean
+  version             Int
+  createdAt           DateTime      @default(now())
+  contact             ContactPoint  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  reviewer            User          @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([contactId, version])
+}
+
+// Deliberately no arbitrary JSON, contact values, evidence text or free-text reasons.
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String   @db.Uuid
+  action      String   @db.VarChar(50)
+  targetId    String   @db.Uuid
+  createdAt   DateTime @default(now())
+  actor       User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt])
 }

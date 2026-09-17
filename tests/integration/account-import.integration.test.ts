@@ -96,7 +96,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
 
   beforeAll(async () => {
     adminEmail = `r1-${runId}-${randomUUID()}@example.test`;
-    const user = await prisma.user.create({ data: { email: adminEmail, passwordHash: await bcrypt.hash(password, 4) } });
+    const user = await prisma.user.create({ data: { email: adminEmail, passwordHash: await bcrypt.hash(password, 4), role: "ADMIN" } });
     userId = user.id;
     server = spawn(process.env.PNPM_BIN ?? "pnpm", ["dev", "-p", "3100"], {
       cwd: process.cwd(),
@@ -116,6 +116,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (createdBatchIds.length) await prisma.importBatch.deleteMany({ where: { id: { in: createdBatchIds } } });
     if (createdSourceIds.length) await prisma.account.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
+    if (userId) await prisma.auditEvent.deleteMany({ where: { actorId: userId } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     const throttleKey = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
     if (userId) {

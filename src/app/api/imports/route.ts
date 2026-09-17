@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canMaintain } from "@/lib/permissions";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
+  if (!canMaintain(user.role)) return forbidden("当前角色无此操作权限");
   const idempotencyKey = request.headers.get("idempotency-key")?.trim() ?? "";
   if (!idempotencyKey || idempotencyKey.length > 200) return NextResponse.json({ error: "IDEMPOTENCY_KEY_REQUIRED", message: "必须提供有效的 Idempotency-Key" }, { status: 422 });
   let form: FormData;

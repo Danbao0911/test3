@@ -9,6 +9,7 @@
   "scripts": {
     "setup:local": "tsx scripts/setup-local.ts",
     "admin:create": "tsx scripts/create-admin.ts",
+    "user:create": "tsx scripts/create-user.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed:demo": "tsx prisma/seed-demo.ts",

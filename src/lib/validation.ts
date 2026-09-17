@@ -52,6 +52,9 @@ export const sourcePatchSchema = z
     permissionNote: z.string().trim().max(2000).optional(),
     status: z.enum(sourceStatusValues).optional(),
     allowImport: z.boolean().optional(),
+    allowExtract: z.boolean().optional(),
+    allowEvidenceText: z.boolean().optional(),
+    retentionDays: z.number().int().min(1).max(365).optional(),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict()

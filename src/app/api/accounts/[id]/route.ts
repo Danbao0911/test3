@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canMaintain } from "@/lib/permissions";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { accountPatchSchema, uuidSchema, validationMessage } from "@/lib/validation";
@@ -24,6 +25,7 @@ export async function PATCH(request: Request, { params }: Context) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
+  if (!canMaintain(user.role)) return forbidden("当前角色无此操作权限");
   const { id } = await params;
   if (!uuidSchema.safeParse(id).success) return NextResponse.json({ error: "NOT_FOUND", message: "账号不存在" }, { status: 404 });
   let body: unknown;

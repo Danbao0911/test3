@@ -1,21 +1,10 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
+import NewAccountPage from "@/components/new-account-page";
 
-import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-
-const labels: Record<string, string> = { XIAOHONGSHU: "小红书", YOUTUBE: "YouTube", X: "X", DOUYIN: "抖音" };
-type Source = { id: string; name: string; status: string; allowImport: boolean; type: string; permissionNote: string };
-
-export default function NewAccountPage() {
-  const router = useRouter(); const [sources, setSources] = useState<Source[]>([]); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ platform: "YOUTUBE", nativeId: "", displayName: "", profileUrl: "", organization: "", serviceTags: "", region: "", sourceId: "", sourceUrl: "" });
-  useEffect(() => { fetch("/api/sources").then(async (response) => { if (response.status === 401) { router.push("/login"); return; } if (!response.ok) throw new Error("来源列表加载失败"); const data = await response.json(); setSources(data.items); }).catch((err) => setError(err instanceof Error ? err.message : "来源列表加载失败，请检查网络连接")); }, [router]);
-  function update(name: string, value: string) { setForm((current) => ({ ...current, [name]: value })); }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(""); setBusy(true);
-    const body = { ...form, nativeId: form.nativeId || null, organization: form.organization || null, region: form.region || null, serviceTags: form.serviceTags.split("|").map((tag) => tag.trim()).filter(Boolean) };
-    try { const response = await fetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify(body) }); const data = await response.json(); if (response.status === 401) { router.push("/login"); return; } if (!response.ok) throw new Error(data.message ?? "账号添加失败"); router.push(`/accounts/${data.item.id}`); } catch (err) { setError(err instanceof Error ? err.message : "账号添加失败，请检查网络连接"); } finally { setBusy(false); }
-  }
-  return <main className="page"><div className="page-header"><div><h1 className="page-title">添加账号</h1><p className="page-subtitle">只登记公开业务账号资料；保存前会重新校验来源权限和主页链接。</p></div><Link className="button secondary" href="/accounts">返回账号库</Link></div><section className="card"><form onSubmit={submit} className="form-grid"><div className="field"><label htmlFor="platform">平台</label><select id="platform" value={form.platform} onChange={(e) => update("platform", e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="field"><label htmlFor="nativeId">平台账号 ID（可选）</label><input id="nativeId" value={form.nativeId} onChange={(e) => update("nativeId", e.target.value)} /></div><div className="field"><label htmlFor="displayName">账号名称</label><input id="displayName" value={form.displayName} onChange={(e) => update("displayName", e.target.value)} maxLength={120} required /></div><div className="field"><label htmlFor="organization">机构（可选）</label><input id="organization" value={form.organization} onChange={(e) => update("organization", e.target.value)} maxLength={200} /></div><div className="field full"><label htmlFor="profileUrl">账号主页 HTTPS 链接</label><input id="profileUrl" type="url" value={form.profileUrl} onChange={(e) => update("profileUrl", e.target.value)} placeholder="https://…" required /></div><div className="field"><label htmlFor="serviceTags">服务标签（用 | 分隔）</label><input id="serviceTags" value={form.serviceTags} onChange={(e) => update("serviceTags", e.target.value)} placeholder="海外资产配置|财富规划" /></div><div className="field"><label htmlFor="region">公开服务地区（可选）</label><input id="region" value={form.region} onChange={(e) => update("region", e.target.value)} maxLength={100} /></div><div className="field"><label htmlFor="sourceId">数据来源</label><select id="sourceId" value={form.sourceId} onChange={(e) => update("sourceId", e.target.value)} required><option value="">请选择来源</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name}（{source.status === "APPROVED" && source.allowImport ? "可录入" : "未获准"}）</option>)}</select></div><div className="field"><label htmlFor="sourceUrl">来源页面 HTTPS 链接</label><input id="sourceUrl" type="url" value={form.sourceUrl} onChange={(e) => update("sourceUrl", e.target.value)} placeholder="https://…" required /></div><div className="notice full">来源需要先在“数据来源”中登记并批准；“管理员登记/确认”不代表平台认证或法律意见。</div>{error ? <div className="notice error full" role="alert">{error}</div> : null}<div className="form-actions full"><button className="button" disabled={busy}>{busy ? "保存中…" : "保存账号"}</button></div></form></section></main>;
+export default async function Page() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (user.role === "VIEWER") return <main className="page"><div className="notice">只读成员无录入权限。</div></main>;
+  return <NewAccountPage />;
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canMaintain } from "@/lib/permissions";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ImportFileError, parseCsvBytes, prepareImportRows, sourceBlockMessage, sourceCanImport } from "@/lib/import-service";
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
+  if (!canMaintain(user.role)) return forbidden("当前角色无此操作权限");
   let form: FormData;
   try { form = await readBoundedFormData(request); } catch (error) {
     const isTooLarge = error instanceof RequestBodyTooLargeError;

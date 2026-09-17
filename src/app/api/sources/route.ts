@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canManageSources } from "@/lib/permissions";
 import { forbidden, isSameOrigin, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sourceCreateSchema } from "@/lib/validation";
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
   const user = await (await import("@/lib/auth")).getCurrentUser();
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
+  if (!canManageSources(user.role)) return forbidden("当前角色无此操作权限");
   let body: unknown;
   try {
     body = await request.json();

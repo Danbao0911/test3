@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canMaintain } from "@/lib/permissions";
 import { Prisma } from "@/generated/prisma/client";
 import type { Platform } from "@/generated/prisma/client";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
   if (!isSameOrigin(request)) return forbidden("请求来源校验失败");
+  if (!canMaintain(user.role)) return forbidden("当前角色无此操作权限");
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "INVALID_JSON", message: "请求格式错误" }, { status: 400 }); }
   const parsed = accountInputSchema.safeParse(body);
