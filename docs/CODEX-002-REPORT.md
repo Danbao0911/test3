@@ -1,6 +1,6 @@
 # CODEX-002 · 商务联系候选与证据核验
 
-范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
+范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
 ## 已实现
 
@@ -32,9 +32,9 @@
 
 ## 验证记录
 
-代码/测试提交：`9f53a1a`（实现）、`163122a`（HTTP/E2E及非特权测试角色）、`06e70c1`（测试库迁移权限与演示输入约束）。
+代码/测试提交：`9f53a1a`（实现）、`163122a`（HTTP/E2E及非特权测试角色）、`06e70c1`（测试库迁移权限与演示输入约束）、`04629e6a7c7411ccd1977a976f45ab8578d60ff8`（上下文规则修复及运行说明）。均已推送 GitHub。
 
-本地已运行：`pnpm db:generate`、`pnpm lint`、`pnpm typecheck`、`pnpm test:unit`；单元测试 84 通过、0 失败、0 跳过。提取用例含 22 正向 + 36 缺失/第三方/歧义/无效输入，另有上下文、权限、期限、精确去重与无外联断言。
+本地已运行：`pnpm db:generate`、`pnpm lint`、`pnpm typecheck`、`pnpm test:unit`，退出码均为 0；单元测试 88 通过、0 失败、0 跳过。提取用例含 24 正向 + 38 缺失/第三方/歧义/无效输入，另有上下文、权限、期限、精确去重与无外联断言。
 
 本机没有可用 Docker/PostgreSQL，未在本机运行数据库迁移、集成或浏览器测试。`pnpm build` 本机两次失败（exit 1）：Turbopack 创建内部进程绑定端口时被运行环境禁止，申请沙箱外执行后仍受限；这不记为通过。
 
@@ -42,7 +42,25 @@ CI 首次基础实现 [35260493120](https://github.com/Danbao0911/test3/actions/
 
 CI [35261298472](https://github.com/Danbao0911/test3/actions/runs/35261298472) 实际失败：非特权角色能创建表，但旧迁移 `CREATE SCHEMA IF NOT EXISTS` 仍需要本轮数据库级 CREATE 权限；后续迁移、集成及 E2E 未运行。`06e70c1` 只向临时测试库授予 CONNECT/CREATE，未授予超级用户或角色级 CREATEDB。
 
-最终完整 CI 结果待补充，未完成项不记通过。
+CI [35261557937](https://github.com/Danbao0911/test3/actions/runs/35261557937) 实际执行迁移成功、HTTP 28 通过/1 失败、浏览器 2 通过。失败用例 C09 揭示地址内部的 `invalid` 被误当上下文，返回零候选而未进入演示地址限制；修复为区分标签/外围上下文与地址值，并增加相应回归及跨行第三方标记测试，没有放宽断言。
+
+最终完整 CI：[35261994987](https://github.com/Danbao0911/test3/actions/runs/35261994987)，对应完整 SHA `04629e6a7c7411ccd1977a976f45ab8578d60ff8`，verify / e2e 两个 job 全部成功，无测试跳过，无自动重试。
+
+| 实际命令（CI） | 结果 | 退出码 |
+| --- | --- | --- |
+| pnpm install --frozen-lockfile | 成功 | 0 |
+| pnpm db:generate | 成功 | 0 |
+| pnpm test:unit | 88 通过，0 失败，0 跳过 | 0 |
+| pnpm exec tsx scripts/prepare-ci-database.ts | 两个独立临时数据库的非特权角色初始化成功 | 0 |
+| pnpm db:migrate | 空库按顺序执行 3 个迁移成功 | 0 |
+| pnpm lint / pnpm typecheck | 均成功 | 0 |
+| pnpm test:integration | 29 通过，0 失败，0 跳过（含新增 C01–C14） | 0 |
+| pnpm setup:local / pnpm admin:create | 临时 E2E 管理员初始化成功 | 0 |
+| pnpm exec playwright install --with-deps chromium | 成功 | 0 |
+| pnpm test:e2e | 2 通过，0 失败，0 跳过，重试数 0 | 0 |
+| pnpm build | CI 正式构建成功；本机受限失败另列于上文 | 0 |
+
+没有生成或提交演示截图，不以页面截图替代数据库断言。未运行：真实数据试点、四平台真实调用、物理清理/备份恢复演练、本机迁移/浏览器和本次改动后的 demo seed 实库执行。
 
 ## 验收映射
 
