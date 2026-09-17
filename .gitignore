@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+coverage/
+dist/
+.env
+.env.*
+!.env.example
+.local/
+playwright-report/
+test-results/
+*.log
+src/generated/prisma/
+prisma/generated/
