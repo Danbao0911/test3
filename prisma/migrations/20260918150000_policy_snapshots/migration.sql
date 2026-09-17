@@ -38,7 +38,7 @@ WHERE s."sourceId" = e."sourceId" AND s."version" = e."policyVersion";
 -- Old evidence whose source version was not present in Source at migration time is
 -- represented as an explicit unknown legacy version before the FK becomes required.
 INSERT INTO "SourcePolicySnapshot" ("id", "sourceId", "version", "status", "allowImport", "allowExtract", "allowEvidenceText", "retentionDays", "expiresAt", "permissionNote", "authorizationBasis", "changedById", "recordedAt", "changeType", "isLegacy")
-SELECT DISTINCT md5(e."sourceId"::text || ':legacy:' || e."policyVersion")::uuid, e."sourceId", e."policyVersion", NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'legacy/unknown: 迁移前没有策略快照，不能还原历史授权', NULL, CURRENT_TIMESTAMP, 'LEGACY_EVIDENCE_VERSION', true
+SELECT DISTINCT md5(e."sourceId"::text || ':legacy:' || e."policyVersion")::uuid, e."sourceId", e."policyVersion", NULL::"SourceStatus", NULL::boolean, NULL::boolean, NULL::boolean, NULL::integer, NULL::timestamp(3), NULL::varchar(2000), 'legacy/unknown: 迁移前没有策略快照，不能还原历史授权', NULL::uuid, CURRENT_TIMESTAMP, 'LEGACY_EVIDENCE_VERSION', true
 FROM "Evidence" e
 WHERE e."policySnapshotId" IS NULL;
 
