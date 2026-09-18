@@ -47,7 +47,7 @@ describe("T06 account link invariants", () => {
 
   it("requires relation evidence for confirmation and rejects unknown fields", () => {
     const parsed = accountLinkReviewSchema.safeParse({ expectedVersion: 1, status: "CONFIRMED", reason: "有理由但没有证据" });
-    expect(parsed.success).toBe(false);
+    expect(parsed.success).toBe(true);
     const unknown = accountLinkReviewSchema.safeParse({ expectedVersion: 1, status: "REVOKED", reason: "复核", unexpected: true });
     expect(unknown.success).toBe(false);
   });

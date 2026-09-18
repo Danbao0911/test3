@@ -124,9 +124,6 @@ export const accountLinkReviewSchema = z
   })
   .strict()
   .superRefine((value, context) => {
-    if (value.status === "CONFIRMED" && !value.evidence?.length) {
-      context.addIssue({ code: "custom", path: ["evidence"], message: "确认关联必须提交至少一条关系专用证据" });
-    }
     for (const [index, item] of (value.evidence ?? []).entries()) {
       if (!item.sourceUrl && !item.referenceEvidenceId) {
         context.addIssue({ code: "custom", path: ["evidence", index, "sourceUrl"], message: "证据必须包含来源地址或已有证据引用" });

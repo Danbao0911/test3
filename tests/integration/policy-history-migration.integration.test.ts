@@ -96,7 +96,7 @@ describe("R04 policy snapshot incremental migration", () => {
       [accountId],
     );
     expect(workspace.rows).toEqual([{ workspaceVersion: 1, status: "NOT_CONTACTED", note: "" }]);
-    const linkTables = await client!.query(`SELECT to_regclass('"AccountLinkEvidence"') AS evidence, to_regclass('"AccountLinkDecision"') AS decisions`);
-    expect(linkTables.rows).toEqual([{ evidence: "AccountLinkEvidence", decisions: "AccountLinkDecision" }]);
+    const linkTables = await client!.query(`SELECT (to_regclass(current_schema() || '."AccountLinkEvidence"') IS NOT NULL) AS evidence, (to_regclass(current_schema() || '."AccountLinkDecision"') IS NOT NULL) AS decisions`);
+    expect(linkTables.rows).toEqual([{ evidence: true, decisions: true }]);
   });
 });

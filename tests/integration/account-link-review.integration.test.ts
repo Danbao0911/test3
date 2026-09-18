@@ -227,7 +227,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
   }, 30_000);
 
   it("关联请求体有界、坏 JSON 和大小写 UUID 不会落成数据库错误", async () => {
-    const tooLarge = await request("reviewerA", "/api/account-links", { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": "20000" }, body: "{}" });
+    const tooLarge = await request("reviewerA", "/api/account-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "x".repeat(20_000) }) });
     expect(tooLarge.response.status).toBe(413);
     const badJson = await request("reviewerA", "/api/account-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{bad" });
     expect(badJson.response.status).toBe(400);
