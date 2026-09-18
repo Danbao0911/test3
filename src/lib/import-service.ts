@@ -220,6 +220,7 @@ export async function createAccountWithRules(
             sourceUrl: normalizedSourceUrl,
             capturedAt: new Date(),
             isDemo: source.type === "DEMO" && currentRuntimeMode() !== "production",
+            followUp: { create: {} },
           },
         });
         return { kind: "created", account };
@@ -295,6 +296,7 @@ export async function executeImport(
               sourceUrl: row.normalizedSourceUrl,
               capturedAt: new Date(),
               isDemo: source.type === "DEMO" && currentRuntimeMode() !== "production",
+              followUp: { create: {} },
             },
           });
           createdCount += 1;

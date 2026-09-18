@@ -104,7 +104,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   let contactAccountId = "";
   let contactIds: string[] = [];
   const contactText = "商务邮箱：review@example.com\n商务微信：demo_review\n企业电话：+1 202 555 0100\n官网联系页：https://example.com/contact\n商务预约：https://example.com/book";
-  const extractInput = (text = contactText) => ({ accountId: contactAccountId, sourceId: contactSourceId, sourceUrl: "https://example.com/demo/evidence/contacts", capturedAt: new Date(Date.now() - 60000).toISOString(), fieldLocation: "账号简介商务栏", context: "ACCOUNT_PROFILE", text });
+  const extractInput = (text = contactText, sourceOverride = contactSourceId, accountOverride = contactAccountId) => ({ accountId: accountOverride, sourceId: sourceOverride, sourceUrl: "https://example.com/demo/evidence/contacts", capturedAt: new Date(Date.now() - 60000).toISOString(), fieldLocation: "账号简介商务栏", context: "ACCOUNT_PROFILE", text });
   const reviewInput = (version = 1, status = "APPROVED") => ({ version, status, ownershipConfirmed: true, businessConfirmed: true, reason: "已核对字段证据，主体和商务用途一致" });
 
   beforeAll(async () => {
@@ -550,6 +550,49 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect((await request(`/api/contacts/${randomUUID()}`)).response.status).toBe(404);
     const body = jsonBody(reviewInput());
     expect((await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...body, headers: { ...body.headers, Origin: "https://attacker.invalid", "x-forwarded-host": "127.0.0.1:3100" } })).response.status).toBe(403);
+  });
+
+  it("T05 账号工作台支持筛选、收藏、负责人和人工跟进", async () => {
+    const sourceId = await createSource(`T05 workspace ${randomUUID()}`);
+    await patchSource(sourceId, { allowExtract: true, allowEvidenceText: true });
+    const accountResult = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(sourceId, `workspace-${randomUUID()}`)) });
+    expect(accountResult.response.status).toBe(201);
+    const accountId = accountResult.data.item.id as string;
+
+    const pendingList = await request(`/api/accounts?serviceTag=财富规划&contactStatus=PENDING&hasContact=NO&followUpStatus=NOT_CONTACTED&favorite=NO&pageSize=100`);
+    expect(pendingList.response.status).toBe(200);
+    expect((pendingList.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
+    expect((pendingList.data.items as ApiItem[]).find((item) => item.id === accountId)).toMatchObject({ favorite: false, hasUsableContact: false, reviewStatus: null, followUp: { status: "NOT_CONTACTED", note: "" } });
+
+    const favorite = await request(`/api/accounts/${accountId}/favorite`, { method: "POST", headers: { Origin: baseUrl } });
+    expect(favorite.response.status).toBe(200);
+    const workspace = await request(`/api/accounts/${accountId}/follow-up`, { method: "PATCH", ...jsonBody({ status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" }) });
+    expect(workspace.response.status).toBe(200);
+    const assigned = await request(`/api/accounts/${accountId}`, { method: "PATCH", ...jsonBody({ ownerId: userId }) });
+    expect(assigned.response.status).toBe(200);
+    const detail = await request(`/api/accounts/${accountId}`);
+    expect(detail.data.item).toMatchObject({ favorite: true, owner: { id: userId }, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" } });
+    const filtered = await request(`/api/accounts?favorite=YES&followUpStatus=CONTACTING&hasContact=NO&pageSize=100`);
+    expect((filtered.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
+
+    const contactAccount = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(sourceId, `workspace-contact-${randomUUID()}`)) });
+    expect(contactAccount.response.status).toBe(201);
+    const contactAccountIdForWorkspace = contactAccount.data.item.id as string;
+    const extracted = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("商务邮箱：workspace@example.com", sourceId, contactAccountIdForWorkspace)) });
+    expect(extracted.response.status).toBe(200);
+    const contactId = (extracted.data.ids as string[])[0];
+    const approved = await request(`/api/contacts/${contactId}`, { method: "PATCH", ...jsonBody(reviewInput()) });
+    expect(approved.response.status).toBe(200);
+    const available = await request("/api/accounts?contactStatus=APPROVED&hasContact=YES&pageSize=100");
+    expect((available.data.items as ApiItem[]).some((item) => item.id === contactAccountIdForWorkspace)).toBe(true);
+
+    await prisma.user.update({ where: { id: userId }, data: { role: "VIEWER" } });
+    try {
+      expect((await request("/api/users")).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}/favorite`, { method: "DELETE", headers: { Origin: baseUrl } })).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}/follow-up`, { method: "PATCH", ...jsonBody({ status: "REPLIED", note: "viewer" }) })).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}`)).data.item.followUp).toMatchObject({ status: "CONTACTING" });
+    } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
   });
 
   it("T15 过期会话不能继续访问业务 API", async () => {

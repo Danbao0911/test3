@@ -3,6 +3,7 @@ import { z } from "zod";
 export const platformValues = ["XIAOHONGSHU", "YOUTUBE", "X", "DOUYIN"] as const;
 export const sourceTypeValues = ["DEMO", "AUTHORIZED_MANUAL"] as const;
 export const sourceStatusValues = ["DRAFT", "APPROVED", "REVOKED"] as const;
+export const followUpStatusValues = ["NOT_CONTACTED", "CONTACTING", "REPLIED", "NOT_MATCH", "DO_NOT_CONTACT"] as const;
 
 const optionalText = (max: number) =>
   z.preprocess(
@@ -35,9 +36,17 @@ export const accountPatchSchema = z
     organization: optionalText(200).optional(),
     serviceTags: z.array(z.string().trim().min(1).max(40)).max(10).optional(),
     region: optionalText(100).optional(),
+    ownerId: z.string().uuid().nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个可修改字段");
+
+export const followUpPatchSchema = z
+  .object({
+    status: z.enum(followUpStatusValues),
+    note: z.string().trim().max(1000),
+  })
+  .strict();
 
 export const sourceCreateSchema = z
   .object({

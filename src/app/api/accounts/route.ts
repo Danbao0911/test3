@@ -4,9 +4,10 @@ import { Prisma } from "@/generated/prisma/client";
 import type { Platform } from "@/generated/prisma/client";
 import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/auth";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "@/lib/account-normalizer";
+import { accountWorkspaceDto, accountWorkspaceInclude, findUsableAccountIds } from "@/lib/account-workspace";
 import { prisma } from "@/lib/db";
 import { createAccountWithRules, SourceNotAllowedError } from "@/lib/import-service";
-import { accountInputSchema, platformValues, parsePositiveInt, validationMessage } from "@/lib/validation";
+import { accountInputSchema, followUpStatusValues, platformValues, parsePositiveInt, validationMessage } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,17 @@ export async function GET(request: Request) {
   const platform = platformValues.includes(platformParam as (typeof platformValues)[number]) ? platformParam as Platform : undefined;
   const serviceTag = url.searchParams.get("serviceTag")?.trim() || undefined;
   const sourceId = url.searchParams.get("sourceId")?.trim() || undefined;
+  const contactStatusParam = url.searchParams.get("contactStatus")?.trim() || undefined;
+  const hasContactParam = url.searchParams.get("hasContact")?.trim() || undefined;
+  const followUpStatusParam = url.searchParams.get("followUpStatus")?.trim() || undefined;
+  const favoriteParam = url.searchParams.get("favorite")?.trim() || undefined;
+  const validContactStatuses = ["PENDING", "APPROVED", "REJECTED", "INVALID"] as const;
+  if ((contactStatusParam && !validContactStatuses.includes(contactStatusParam as (typeof validContactStatuses)[number])) ||
+      (hasContactParam && !["YES", "NO"].includes(hasContactParam)) ||
+      (followUpStatusParam && !followUpStatusValues.includes(followUpStatusParam as (typeof followUpStatusValues)[number])) ||
+      (favoriteParam && !["YES", "NO"].includes(favoriteParam))) {
+    return NextResponse.json({ error: "VALIDATION_ERROR", message: "账号工作台筛选条件无效" }, { status: 422 });
+  }
   const page = parsePositiveInt(url.searchParams.get("page"), 1, 1_000_000);
   const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 20, 100);
   const where: Prisma.AccountWhereInput = {
@@ -30,12 +42,19 @@ export async function GET(request: Request) {
     ...(platform ? { platform } : {}),
     ...(serviceTag ? { serviceTags: { has: serviceTag } } : {}),
     ...(sourceId ? { sourceId } : {}),
+    ...(contactStatusParam ? { evidence: { some: { contact: { status: contactStatusParam as (typeof validContactStatuses)[number] } } } } : {}),
+    ...(followUpStatusParam ? { followUp: { is: { status: followUpStatusParam as (typeof followUpStatusValues)[number] } } } : {}),
+    ...(favoriteParam ? { favorites: favoriteParam === "YES" ? { some: { userId: user.id } } : { none: { userId: user.id } } } : {}),
   };
+  const usableIds = hasContactParam ? await findUsableAccountIds(prisma) : new Set<string>();
+  if (hasContactParam === "YES") where.id = { in: [...usableIds] };
+  if (hasContactParam === "NO") where.id = { notIn: [...usableIds] };
   const [items, total] = await Promise.all([
-    prisma.account.findMany({ where, include: { source: { select: { id: true, name: true, status: true, type: true } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.account.findMany({ where, include: { ...accountWorkspaceInclude, source: { select: { id: true, name: true, status: true, type: true } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * pageSize, take: pageSize }),
     prisma.account.count({ where }),
   ]);
-  return NextResponse.json({ items, total, page, pageSize });
+  const pageUsableIds = hasContactParam ? usableIds : await findUsableAccountIds(prisma, items.map((item) => item.id));
+  return NextResponse.json({ items: items.map((item) => accountWorkspaceDto(item, pageUsableIds.has(item.id))), total, page, pageSize });
 }
 
 export async function POST(request: Request) {

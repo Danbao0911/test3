@@ -52,6 +52,14 @@ enum ContactStatus {
   INVALID
 }
 
+enum FollowUpStatus {
+  NOT_CONTACTED
+  CONTACTING
+  REPLIED
+  NOT_MATCH
+  DO_NOT_CONTACT
+}
+
 model User {
   id            String         @id @default(uuid()) @db.Uuid
   email         String         @unique @db.VarChar(320)
@@ -64,6 +72,9 @@ model User {
   auditEvents    AuditEvent[]
   policyChanges  Source[]       @relation("PolicyActor")
   policySnapshots SourcePolicySnapshot[] @relation("PolicySnapshotActor")
+  ownedAccounts  Account[]      @relation("AccountOwner")
+  favorites      AccountFavorite[]
+  followUpUpdates AccountFollowUp[] @relation("FollowUpUpdater")
 }
 
 model Session {
@@ -126,16 +137,47 @@ model Account {
   sourceUrl             String      @db.VarChar(2048)
   capturedAt            DateTime
   isDemo                Boolean     @default(false)
+  ownerId               String?     @db.Uuid
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   source                Source      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  owner                 User?       @relation("AccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   importRowResults      ImportRowResult[]
   evidence              Evidence[]
+  favorites             AccountFavorite[]
+  followUp              AccountFollowUp?
 
   @@unique([platform, normalizedProfileUrl])
   @@unique([platform, nativeId])
   @@index([platform, createdAt, id])
   @@index([sourceId, createdAt])
+  @@index([ownerId, createdAt])
+}
+
+model AccountFavorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @db.Uuid
+  userId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([userId, createdAt])
+}
+
+model AccountFollowUp {
+  id          String       @id @default(uuid()) @db.Uuid
+  accountId   String       @unique @db.Uuid
+  status      FollowUpStatus @default(NOT_CONTACTED)
+  note        String       @default("") @db.VarChar(1000)
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  updatedBy   User?       @relation("FollowUpUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
 }
 
 model ImportBatch {
