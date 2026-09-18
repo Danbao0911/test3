@@ -78,7 +78,13 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   if (!createdAccountResponse.ok()) throw new Error(`账号创建 API ${createdAccountResponse.status()}：${JSON.stringify(await createdAccountResponse.json())}`);
   await expect(page).toHaveURL(/\/accounts\/[0-9a-f-]{36}$/);
   await expect(page.getByText("收藏与人工跟进")).toBeVisible();
+  const favoriteResponsePromise = page.waitForResponse((response) => response.url().endsWith(`/api/accounts/${new URL(page.url()).pathname.split("/").pop()}/favorite`) && response.request().method() === "POST");
   await page.getByRole("button", { name: "收藏账号" }).click();
+  const favoriteResponse = await favoriteResponsePromise;
+  expect(favoriteResponse.ok()).toBe(true);
+  const favoriteData = await favoriteResponse.json() as { favorite?: boolean };
+  expect(favoriteData.favorite).toBe(true);
+  await expect(page.getByRole("button", { name: "取消收藏" })).toBeVisible();
   await page.getByLabel("负责人").selectOption({ label: `${email} · ADMIN` });
   await page.getByLabel("跟进状态").selectOption("CONTACTING");
   await page.getByLabel("跟进备注").fill("已人工核对公开业务方向，等待下一次人工跟进");
