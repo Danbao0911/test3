@@ -59,6 +59,7 @@ async function login(user: UserKey) {
 }
 
 async function createFixture(displayName: string) {
+  const contactValue = `t07-${randomUUID()}@example.com`;
   const sourceResponse = await request("admin", "/api/sources", { method: "POST", ...jsonBody({ name: `T07 来源 ${randomUUID()}`, type: "DEMO", permissionNote: "T07 隔离测试授权依据" }) });
   expect(sourceResponse.response.status).toBe(201);
   const sourceId = sourceResponse.data.item!.id as string;
@@ -69,13 +70,13 @@ async function createFixture(displayName: string) {
   expect(accountResponse.response.status).toBe(201);
   const accountId = accountResponse.data.item!.id as string;
   createdAccountIds.push(accountId);
-  const extracted = await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId, sourceId, sourceUrl: "https://example.com/demo/evidence/t07", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "T07 虚构商务栏", context: "ACCOUNT_PROFILE", text: "商务邮箱：t07@example.com" }) });
+  const extracted = await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId, sourceId, sourceUrl: "https://example.com/demo/evidence/t07", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "T07 虚构商务栏", context: "ACCOUNT_PROFILE", text: `商务邮箱：${contactValue}` }) });
   expect(extracted.response.status).toBe(200);
   const contacts = await request("reviewer", `/api/contacts?accountId=${accountId}`);
   const contactId = contacts.data.items![0].id as string;
   const reviewed = await request("reviewer", `/api/contacts/${contactId}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "T07 隔离测试中人工核对" }) });
   expect(reviewed.response.status).toBe(200);
-  return { sourceId, accountId, contactId };
+  return { sourceId, accountId, contactId, contactValue };
 }
 
 describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", () => {
@@ -117,7 +118,7 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect(download.response.status).toBe(200);
     const csv = download.data.raw as string;
     expect(csv).toContain("'=T07 公式测试账号");
-    expect(csv).toContain("t07@example.com");
+    expect(csv).toContain(fixture.contactValue);
     const second = await request("admin", downloadUrl);
     expect(second.response.status).toBe(410);
     expect((await request("viewer", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [fixture.accountId] }) })).response.status).toBe(403);
@@ -138,7 +139,7 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     const suppressed = await request("reviewer", `/api/contacts/${fixture.contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "测试中明确拒绝后续联系" }) });
     expect(suppressed.response.status).toBe(200);
     expect(await prisma.contactSuppression.count({ where: { contactId: fixture.contactId } })).toBe(1);
-    const extraction = await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: fixture.accountId, sourceId: fixture.sourceId, sourceUrl: "https://example.com/demo/evidence/t07-again", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "T07 再次提取", context: "ACCOUNT_PROFILE", text: "商务邮箱：t07@example.com" }) });
+    const extraction = await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: fixture.accountId, sourceId: fixture.sourceId, sourceUrl: "https://example.com/demo/evidence/t07-again", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "T07 再次提取", context: "ACCOUNT_PROFILE", text: `商务邮箱：${fixture.contactValue}` }) });
     expect(extraction.response.status).toBe(200);
     expect(extraction.data).toMatchObject({ createdCount: 0, suppressedCount: 1 });
     expect((await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["CONTACT_VALUE"], accountIds: [fixture.accountId] }) })).response.status).toBe(422);
