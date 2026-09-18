@@ -63,7 +63,7 @@ test("T08 旧策略、断网和非 JSON 错误保持草稿，不自动重试", a
   const check = page.getByRole("button", { name: "核对接入条件", exact: true });
   await check.click();
   expect((await conflict).status()).toBe(409);
-  await expect(page.getByRole("alert")).toContainText("来源策略已变化");
+  await expect(page.locator(".notice.error[role='alert']")).toContainText("来源策略已变化");
   await expect(page.getByLabel("平台", { exact: true })).toHaveValue("X");
   await expect(page.getByLabel("已登记来源")).toHaveValue(source.id);
   await expect(check).toBeEnabled();
@@ -71,13 +71,13 @@ test("T08 旧策略、断网和非 JSON 错误保持草稿，不自动重试", a
 
   await page.route("**/api/platforms/preflight", route => route.abort("failed"));
   await check.click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.locator(".notice.error[role='alert']")).toBeVisible();
   await expect(check).toBeEnabled();
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.unroute("**/api/platforms/preflight");
   await page.route("**/api/platforms/preflight", route => route.fulfill({ status: 502, contentType: "text/html", body: "upstream unavailable" }));
   await check.click();
-  await expect(page.getByRole("alert")).toContainText("请求失败");
+  await expect(page.locator(".notice.error[role='alert']")).toContainText("请求失败");
   await expect(check).toBeEnabled();
   await expect(page.getByLabel("已登记来源")).toHaveValue(source.id);
   await page.unroute("**/api/platforms/preflight");
