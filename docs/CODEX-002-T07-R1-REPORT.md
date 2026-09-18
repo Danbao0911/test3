@@ -2,7 +2,9 @@
 
 ## 状态
 
-当前代码已追加到 PR [#2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review`，未修改 `main`、未强推、未自动合并、未部署生产。真实联系人提取和批准开关继续关闭。本报告会在推送后补入完整提交 SHA 和真实 CI run；在隔离 PostgreSQL/CI 完成前，状态是“部分完成”，不能把本地单元绿色表述为 R01–R08 全部验收完成。
+T07-R1 代码、真实测试和本报告均已追加到 PR [#2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review`。功能/测试最终提交为 `7d78ca5b226da15dc054197b2c5fef11453c1109`；未修改 `main`、未强推、未自动合并、未部署生产。真实联系人提取和批准开关继续关闭。PR CI 已在隔离 PostgreSQL 和独立 E2E 数据库完成。
+
+最终 Push CI：[35336417309](https://github.com/Danbao0911/test3/actions/runs/35336417309)；对应 PR CI：[35336420997](https://github.com/Danbao0911/test3/actions/runs/35336420997)。两个 CI 的 `verify` 与 `e2e` 均通过，具体计数见下表。此前 `35336089025` 的失败仅是新增测试响应类型未收窄，已由 `7d78ca5` 修复并重新全量验证。
 
 ## R01–R08 修改与测试映射
 
@@ -20,8 +22,10 @@
 ## 关键实际结果
 
 - 导出清单不再允许 `old@example.com` 失效后用同账号新联系方式填补同样行数；清单中的 `contactId`、版本、Evidence 和策略快照必须仍然存在且一致。
+- 修复前仅比较当前合格行数，旧导出可能被新联系方式填满；修复后旧联系失效并批准同账号 `new@example.com` 时，旧 token 返回 HTTP 410、数据库终态为 `REVOKED`，响应不含旧邮箱或新邮箱，载荷被清除。
+- 修复前来源从 v1 变为 v2 时可能沿用数量；修复后即使 v2 仍允许导出，旧清单因策略快照不一致返回 HTTP 410，不自动替换授权。
 - 来源 v1→v2 或字段白名单变化，即使 `allowExport=true`，旧任务也会在下载前返回 410 并持久化 `REVOKED`；旧任务没有清单时也会撤销并清空载荷，不用最新授权补齐。
-- 过期、撤销、损坏密文和摘要不一致均不会留下 `DOWNLOADED` 或 `EXPORT_DOWNLOADED` 成功记录；下载成功后清空密文并轮换 token 哈希。
+- 过期、撤销、损坏密文和摘要不一致均不会留下 `DOWNLOADED` 或 `EXPORT_DOWNLOADED` 成功记录；下载成功后清空密文并轮换 token 哈希。同 token 并发下载由行锁保证最多一次成功。
 - ContactPoint 到期时，相关 Evidence、审核原文和账号相关临时导出不会因 ExportJob 尚未到期而继续保留；`AccountLinkEvidence` 标记 `referenceEvidenceMissing=true`，不会把 SET NULL 当成独立证据。
 - 同值抑制会更新全部账号/来源的同类型规范值联系人；旧 v1 HMAC 记录通过兼容候选继续生效，新 URL 只按类型规范化，不把路径、查询或 fragment 的大小写无依据合并。
 - `SourcePolicySnapshot.allowedExportFields` 使用 nullable 文本 JSON 表示：新快照写入字段白名单，迁移前未知为 `NULL`，不会从 `allowExport=true` 推断全部字段。
@@ -44,10 +48,14 @@
 | `pnpm typecheck` | 通过，退出码 0 |
 | `pnpm lint` | 通过，退出码 0 |
 | `git diff --check` | 通过，退出码 0 |
-| `pnpm test:integration` | 未完成：本机缺少 `TEST_DATABASE_URL`、`TEST_DATABASE_NAME`、`TEST_RUN_ID`，5 个套件在保护检查阶段拒绝，未访问数据库 |
+| `pnpm test:integration` | 本机未执行数据库测试：缺少 `TEST_DATABASE_URL`、`TEST_DATABASE_NAME`、`TEST_RUN_ID`，保护检查拒绝且未访问数据库；CI 实际 55/55 通过 |
+| `pnpm test:e2e` | 本机未执行：无隔离 E2E 环境；CI 实际 8/8 通过 |
+| `pnpm build` | 本机默认 Turbopack 因沙箱内部进程绑定限制失败；`pnpm exec next build --webpack` 通过；CI 项目脚本实际通过 |
 
-本机尚未在经过保护检查的隔离 PostgreSQL 上运行 `pnpm db:migrate`、`pnpm test:integration`、`pnpm test:e2e`、`pnpm build`。CI run、通过/失败/跳过数量和真实链接必须以本轮推送后的 GitHub Actions 结果补入，不能沿用 T07 初始报告的数字。
+最终 PR CI 的实际结果：unit 102 通过、integration 55 通过、E2E 8 通过；失败 0、跳过 0。`lint`、`typecheck`、`build` 均退出码 0。CI 使用带 `TEST_RUN_ID=35336420997` 的隔离数据库，迁移链和真实 HTTP 接口均执行成功。
+
+本机尚未在经过保护检查的隔离 PostgreSQL 上运行 `pnpm db:migrate`；CI 已在临时隔离库执行迁移。`pnpm exec next build --webpack` 是本地替代构建验证，项目默认 `pnpm build` 的正式结果以 CI 为准。
 
 ## 未完成项
 
-当前仍需在隔离 CI/临时 PostgreSQL 完成：迁移链含旧数据的真实执行、R01/R02 并发和终态数据库断言、R03 SET NULL 与屏障测试、R05 混合来源字段许可、R06 备份副本重放和两批中断恢复、R07 501 行/413/旧指纹兼容，以及浏览器导出/撤权/抑制/删除后的页面状态。CI 绿色前不声称 T07-R1 全部完成。
+仍未完成或不应宣称完成的事项：R06 的真实备份副本恢复演练、两批清理中断后的运行级恢复，以及生产环境调度/告警尚未部署；用户已经下载到外部的 CSV 不可回收。CI 已覆盖本轮新增的真实 HTTP、数据库、迁移、501 行/413、指纹兼容和 E2E 回归，但不等于生产上线，也不等于四平台自动采集。若需回滚，停服务并使用已验证的旧代码和整库备份前向恢复，不执行 down migration、reset 或无条件删除。

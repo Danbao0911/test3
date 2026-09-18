@@ -4,7 +4,7 @@
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
-T07-R1 正在继续追加到 PR #2，当前验收状态以 [`CODEX-002-T07-R1-REPORT.md`](./CODEX-002-T07-R1-REPORT.md) 为准；旧 T07 报告中的测试数字和 SHA 不覆盖本轮改动。
+T07-R1 已追加到 PR #2，当前验收状态以 [`CODEX-002-T07-R1-REPORT.md`](./CODEX-002-T07-R1-REPORT.md) 为准；功能/测试 SHA 为 `7d78ca5b226da15dc054197b2c5fef11453c1109`，Push CI `35336417309`、PR CI `35336420997` 均通过。旧 T07 报告中的测试数字和 SHA 仅为历史记录。
 
 ## 后续 T06 状态
 
