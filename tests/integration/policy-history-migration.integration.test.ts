@@ -14,6 +14,7 @@ const migrations = [
   "20260918190000_account_workspace_version/migration.sql",
   "20260918200000_account_links/migration.sql",
   "20260918210000_account_link_evidence_history/migration.sql",
+  "20260918220000_t07_export_suppression_deletion/migration.sql",
 ].map((relative) => readFileSync(path.join(process.cwd(), "prisma/migrations", relative), "utf8"));
 const schemaName = `policy_migration_${database.runId}_${randomUUID().replaceAll("-", "")}`;
 const sourceId = randomUUID();
@@ -53,6 +54,7 @@ describe("R04 policy snapshot incremental migration", () => {
     await client.query(migrations[4]);
     await client.query(migrations[5]);
     await client.query(migrations[6]);
+    await client.query(migrations[7]);
   }, 30_000);
 
   afterAll(async () => {
@@ -99,5 +101,7 @@ describe("R04 policy snapshot incremental migration", () => {
     expect(workspace.rows).toEqual([{ workspaceVersion: 1, status: "NOT_CONTACTED", note: "" }]);
     const linkTables = await client!.query(`SELECT (SELECT COUNT(*) FROM "AccountLinkEvidence") AS evidence_rows, (SELECT COUNT(*) FROM "AccountLinkDecision") AS decision_rows`);
     expect(linkTables.rows).toEqual([{ evidence_rows: "0", decision_rows: "0" }]);
+    const t07Tables = await client!.query(`SELECT (SELECT COUNT(*) FROM "ContactSuppression") AS suppression_rows, (SELECT COUNT(*) FROM "ExportJob") AS export_rows, (SELECT COUNT(*) FROM "DeletionRequest") AS deletion_rows`);
+    expect(t07Tables.rows).toEqual([{ suppression_rows: "0", export_rows: "0", deletion_rows: "0" }]);
   });
 });

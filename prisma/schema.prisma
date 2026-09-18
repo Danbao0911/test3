@@ -71,6 +71,17 @@ enum AccountLinkBasis {
   SHARED_CONTACT_CANDIDATE
 }
 
+enum ExportJobStatus {
+  READY
+  DOWNLOADED
+  EXPIRED
+  REVOKED
+}
+
+enum DeletionRequestStatus {
+  COMPLETED
+}
+
 model User {
   id            String         @id @default(uuid()) @db.Uuid
   email         String         @unique @db.VarChar(320)
@@ -90,6 +101,10 @@ model User {
   reviewedAccountLinks AccountLink[] @relation("AccountLinkReviewer")
   createdAccountLinkEvidence AccountLinkEvidence[] @relation("AccountLinkEvidenceCreator")
   accountLinkDecisions AccountLinkDecision[] @relation("AccountLinkDecisionActor")
+  exportJobs      ExportJob[]
+  requestedDeletions DeletionRequest[] @relation("DeletionRequester")
+  completedDeletions DeletionRequest[] @relation("DeletionCompleter")
+  contactSuppressions ContactSuppression[]
 }
 
 model Session {
@@ -123,6 +138,7 @@ model Source {
   allowExtract   Boolean      @default(false)
   allowEvidenceText Boolean   @default(false)
   allowRelate    Boolean      @default(false)
+  allowExport    Boolean      @default(false)
   retentionDays  Int          @default(30)
   policyVersion  Int          @default(1)
   policyChangedById String?   @db.Uuid
@@ -167,6 +183,8 @@ model Account {
   followUp              AccountFollowUp?
   linksFrom             AccountLink[] @relation("AccountLinkLeft")
   linksTo               AccountLink[] @relation("AccountLinkRight")
+  contactSuppressions   ContactSuppression[]
+  deletionRequests      DeletionRequest[]
 
   @@unique([platform, normalizedProfileUrl])
   @@unique([platform, nativeId])
@@ -247,6 +265,7 @@ model SourcePolicySnapshot {
   allowExtract      Boolean?
   allowEvidenceText Boolean?
   allowRelate      Boolean?
+  allowExport      Boolean?
   retentionDays     Int?
   expiresAt         DateTime?
   permissionNote    String?  @db.VarChar(2000)
@@ -302,6 +321,8 @@ model ContactPoint {
   createdAt           DateTime      @default(now())
   evidence            Evidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
   reviews             ReviewDecision[]
+  suppressions        ContactSuppression[]
+  deletionRequests     DeletionRequest[]
   linkBasisCandidates AccountLink[]  @relation("AccountLinkBasisContact")
   linkMatchingCandidates AccountLink[] @relation("AccountLinkMatchingContact")
 
@@ -417,4 +438,67 @@ model AuditEvent {
   actor       User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([actorId, createdAt])
+}
+
+// A suppression stores only a keyed fingerprint, never the rejected contact value.
+// It is intentionally expiring and survives deletion of the original contact/account.
+model ContactSuppression {
+  id             String        @id @default(uuid()) @db.Uuid
+  fingerprint    String        @unique @db.VarChar(64)
+  contactType    ContactType?
+  accountId      String?       @db.Uuid
+  contactId      String?       @db.Uuid
+  reasonCode     String        @db.VarChar(80)
+  basis          String        @db.VarChar(500)
+  expiresAt      DateTime
+  createdById    String        @db.Uuid
+  createdAt      DateTime      @default(now())
+  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contact        ContactPoint? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  createdBy      User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt])
+  @@index([accountId, expiresAt])
+}
+
+model ExportJob {
+  id               String         @id @default(uuid()) @db.Uuid
+  createdById      String         @db.Uuid
+  tokenHash        String         @unique @db.VarChar(64)
+  encryptedPayload String         @db.Text
+  accountIds       String[]       @db.Uuid
+  fieldSet         String[]       @db.Text
+  filterSummary    String         @db.VarChar(1000)
+  rowCount         Int
+  excludedCount    Int
+  status           ExportJobStatus @default(READY)
+  expiresAt        DateTime
+  downloadedAt     DateTime?
+  createdAt        DateTime       @default(now())
+  createdBy        User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([createdById, createdAt])
+  @@index([expiresAt, status])
+}
+
+model DeletionRequest {
+  id            String                @id @default(uuid()) @db.Uuid
+  targetHash    String                @db.VarChar(64)
+  targetType    String                @db.VarChar(30)
+  accountId     String?               @db.Uuid
+  contactId     String?               @db.Uuid
+  reason        String                @db.VarChar(500)
+  status        DeletionRequestStatus  @default(COMPLETED)
+  requestedById String                @db.Uuid
+  completedById String                @db.Uuid
+  requestedAt   DateTime              @default(now())
+  completedAt   DateTime              @default(now())
+  account       Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contact       ContactPoint?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  requestedBy   User                  @relation("DeletionRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  completedBy   User                  @relation("DeletionCompleter", fields: [completedById], references: [id], onDelete: Restrict)
+
+  @@index([targetHash, completedAt])
+  @@index([accountId, completedAt])
+  @@index([contactId, completedAt])
 }

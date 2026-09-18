@@ -44,7 +44,7 @@ function messageOf(data: Record<string, unknown>, fallback: string) {
   return typeof data.message === "string" ? data.message : fallback;
 }
 
-export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
+export function AccountDetail({ id, canEdit, canDelete }: { id: string; canEdit: boolean; canDelete: boolean }) {
   const router = useRouter();
   const [account, setAccount] = useState<Account | null>(null);
   const [form, setForm] = useState({ displayName: "", organization: "", serviceTags: "", region: "" });
@@ -153,11 +153,22 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
     finally { setWorkspaceBusy(false); }
   }
 
+  async function deleteAccount() {
+    if (!window.confirm("删除账号会物理删除账号、联系人、证据、收藏和临时导出，并保留有期限的拒绝联系指纹。确定继续吗？")) return;
+    setError("");
+    try {
+      const response = await fetch("/api/deletion-requests", { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify({ accountId: id, reason: "管理员确认删除账号及其相关证据", confirm: true }) });
+      const data = await responseData(response);
+      if (!response.ok) { setError(messageOf(data, "删除失败")); return; }
+      router.push("/accounts"); router.refresh();
+    } catch { setError("删除失败，请检查网络连接；未确认事务结果"); }
+  }
+
   if (error && !account) return <main className="page"><div className="notice error" role="alert">{error}</div><Link className="text-link" href="/accounts">返回账号库</Link></main>;
   if (!account) return <main className="page"><div className="empty">正在加载账号…</div></main>;
 
   return <main className="page">
-    <div className="page-header"><div><h1 className="page-title">{account.displayName}</h1><p className="page-subtitle">账号详情 · {labels[account.platform] ?? account.platform}{account.isDemo ? " · 演示数据" : ""}</p></div><div className="inline-actions"><Link className="button" href={`/accounts/${id}/contacts`}>商务联系与证据</Link><Link className="button secondary" href="/accounts">返回账号库</Link></div></div>
+    <div className="page-header"><div><h1 className="page-title">{account.displayName}</h1><p className="page-subtitle">账号详情 · {labels[account.platform] ?? account.platform}{account.isDemo ? " · 演示数据" : ""}</p></div><div className="inline-actions"><Link className="button" href={`/accounts/${id}/contacts`}>商务联系与证据</Link>{canDelete ? <button className="button danger" type="button" onClick={() => void deleteAccount()}>删除账号</button> : null}<Link className="button secondary" href="/accounts">返回账号库</Link></div></div>
     {error ? <div className="notice error" role="alert">{error}</div> : null}
     <section className="card" style={{ marginBottom: 18 }}><dl className="detail-grid">
       <div className="detail-item"><dt>平台账号 ID</dt><dd>{account.nativeId || "未提供"}</dd></div>

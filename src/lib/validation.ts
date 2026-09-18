@@ -79,11 +79,44 @@ export const sourcePatchSchema = z
     allowExtract: z.boolean().optional(),
     allowEvidenceText: z.boolean().optional(),
     allowRelate: z.boolean().optional(),
+    allowExport: z.boolean().optional(),
     retentionDays: z.number().int().min(1).max(365).optional(),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个来源修改字段");
+
+export const exportFieldValues = ["ACCOUNT_ID", "PLATFORM", "DISPLAY_NAME", "ORGANIZATION", "SERVICE_TAGS", "REGION", "CONTACT_TYPE", "CONTACT_VALUE", "SOURCE_URL", "CAPTURED_AT", "REVIEWED_AT"] as const;
+export const exportCreateSchema = z.object({
+  accountIds: z.array(z.uuid()).max(500).optional(),
+  fields: z.array(z.enum(exportFieldValues)).min(1).max(exportFieldValues.length),
+  filters: z.object({
+    q: z.string().trim().max(120).optional(),
+    platform: z.enum(platformValues).optional(),
+    sourceId: z.uuid().optional(),
+    contactStatus: z.enum(["APPROVED"]).optional(),
+    followUpStatus: z.enum(followUpStatusValues).optional(),
+    favorite: z.enum(["YES", "NO"]).optional(),
+  }).strict().optional().default({}),
+  expiresInMinutes: z.number().int().min(1).max(30).default(10),
+}).strict().refine((value) => new Set(value.fields).size === value.fields.length, "导出字段不能重复");
+
+export const suppressionSchema = z.object({
+  reasonCode: z.enum(["DO_NOT_CONTACT", "INVALID_CONTACT", "USER_REQUEST"]),
+  basis: z.string().trim().min(1).max(500),
+  expiresAt: z.iso.datetime({ offset: true }).optional(),
+}).strict();
+
+export const deletionRequestSchema = z.object({
+  accountId: z.uuid().optional(),
+  contactId: z.uuid().optional(),
+  reason: z.string().trim().min(1).max(500),
+  confirm: z.literal(true),
+}).strict().refine((value) => Boolean(value.accountId) !== Boolean(value.contactId), "必须且只能选择账号或联系项");
+
+export type ExportInput = z.infer<typeof exportCreateSchema>;
+export type SuppressionInput = z.infer<typeof suppressionSchema>;
+export type DeletionRequestInput = z.infer<typeof deletionRequestSchema>;
 
 export const accountLinkCreateSchema = z
   .object({

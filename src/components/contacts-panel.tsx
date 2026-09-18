@@ -10,7 +10,7 @@ type Contact = { id: string; type: string; value: string; status: string; versio
 const statuses: Record<string, string> = { PENDING: "待审核", APPROVED: "已通过", REJECTED: "已驳回", INVALID: "已失效" };
 const types: Record<string, string> = { EMAIL: "商务邮箱", WECHAT: "商务微信", PHONE: "企业电话", CONTACT_URL: "官网联系页", BOOKING_URL: "预约链接" };
 
-export function ContactsPanel({ account, canReview, canExtract = false }: { account?: { id: string; displayName: string; sourceId: string }; canReview: boolean; canExtract?: boolean }) {
+export function ContactsPanel({ account, canReview, canDelete = false, canExtract = false }: { account?: { id: string; displayName: string; sourceId: string }; canReview: boolean; canDelete?: boolean; canExtract?: boolean }) {
   const [items, setItems] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
@@ -42,7 +42,7 @@ export function ContactsPanel({ account, canReview, canExtract = false }: { acco
       <div className="toolbar"><div className="field"><label htmlFor="contact-status">审核状态</label><select id="contact-status" value={status} disabled={loading} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">全部</option>{Object.entries(statuses).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></div><button className="button secondary" disabled={loading} onClick={() => void load()}>刷新联系项</button></div>
       {error ? <div className="notice error" role="alert">{error}</div> : loading ? <p role="status">加载中…</p> : <>
         {!items.length && <div className="empty">没有符合条件的联系项。缺失联系方式是合法结果。</div>}
-        {items.map(item => <ContactCard key={`${item.id}:${item.version}`} item={item} canReview={canReview} reload={load} />)}
+        {items.map(item => <ContactCard key={`${item.id}:${item.version}`} item={item} canReview={canReview} canDelete={canDelete} reload={load} />)}
         <div className="pagination"><span>共 {total} 条 · 第 {page} 页</span><div className="inline-actions"><button className="button secondary" disabled={page === 1} onClick={() => setPage(page - 1)}>上一页</button><button className="button secondary" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div></div>
       </>}
     </section>
@@ -82,7 +82,7 @@ function ExtractForm({ account, reload }: { account: { id: string; sourceId: str
   </section>;
 }
 
-function ContactCard({ item, canReview, reload }: { item: Contact; canReview: boolean; reload: () => Promise<void> }) {
+function ContactCard({ item, canReview, canDelete, reload }: { item: Contact; canReview: boolean; canDelete: boolean; reload: () => Promise<void> }) {
   const [ownership, setOwnership] = useState(false);
   const [business, setBusiness] = useState(false);
   const [reason, setReason] = useState("");
@@ -111,6 +111,28 @@ function ContactCard({ item, canReview, reload }: { item: Contact; canReview: bo
     } catch (err) { setError(err instanceof Error ? err.message : "网络异常，未确认候选生成结果"); }
     finally { setSuggestBusy(false); }
   }
+  async function suppress() {
+    if (!window.confirm("确认拒绝后续联系？系统会立即阻止导出，并只保存带期限的最小化指纹。")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/contacts/${item.id}/suppression`, { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify({ reasonCode: "DO_NOT_CONTACT", basis: "人工确认拒绝后续联系" }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "拒绝联系处理失败");
+      await reload();
+    } catch (err) { setError(err instanceof Error ? err.message : "网络异常，请刷新确认结果"); }
+    finally { setBusy(false); }
+  }
+  async function deleteContact() {
+    if (!window.confirm("确认物理删除该联系项及对应证据？系统会保留有期限的最小化抑制指纹。")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/deletion-requests", { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify({ contactId: item.id, reason: "管理员确认删除联系项及其证据", confirm: true }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "删除失败");
+      await reload();
+    } catch (err) { setError(err instanceof Error ? err.message : "网络异常，请刷新确认结果"); }
+    finally { setBusy(false); }
+  }
   return <article className="card contact-card" data-contact-id={item.id} style={{ marginBottom: 16 }}>
     <div className="page-header"><div><h3>{types[item.type]} · {item.value}</h3><Link className="text-link" href={`/accounts/${item.account.id}/contacts`}>{item.account.displayName}</Link>{item.account.isDemo && <span className="badge warning">演示数据</span>}</div><div><span className="badge neutral">{statuses[item.status]}</span> <span className={`badge ${item.usable ? "success" : "warning"}`}>{item.usable ? "核验可用" : "当前不可用"}</span></div></div>
     <p className="small">来源：{item.source.name} · 证据策略 v{item.source.policyVersion} / 当前 v{item.source.currentVersion} · 有效至 {new Date(item.expiresAt).toLocaleString("zh-CN")}</p>
@@ -120,6 +142,7 @@ function ContactCard({ item, canReview, reload }: { item: Contact; canReview: bo
       <div className="field" style={{ marginTop: 12 }}><label htmlFor={`reason-${item.id}`}>审核原因（不得复制联系值）</label><textarea id={`reason-${item.id}`} value={reason} maxLength={500} onChange={e => setReason(e.target.value)} /></div>
       <div className="inline-actions" style={{ marginTop: 12 }}><button className="button" disabled={!ownership || !business || !reason.trim() || item.masked || item.status !== "PENDING"} onClick={() => void review("APPROVED")}>确认通过</button><button className="button secondary" disabled={!reason.trim()} onClick={() => void review("REJECTED")}>驳回</button><button className="button danger" disabled={!reason.trim()} onClick={() => void review("INVALID")}>标记失效</button></div>
       {item.status === "APPROVED" && <div className="inline-actions" style={{ marginTop: 12 }}><button className="button secondary" disabled={item.masked} onClick={() => void suggestLinks()}>{suggestBusy ? "生成中…" : "生成账号关联候选"}</button><span className="muted small">仅生成待人工核验候选，不会自动合并账号。</span></div>}
+      <div className="inline-actions" style={{ marginTop: 12 }}><button className="button danger" disabled={busy} onClick={() => void suppress()}>拒绝后续联系</button>{canDelete ? <button className="button danger" disabled={busy} onClick={() => void deleteContact()}>删除联系项</button> : null}</div>
     </fieldset>}
     {error && <p className="notice error" role="alert">{error}</p>}
     <details><summary>审核历史（最近 30 条）</summary>{item.reviews.length ? item.reviews.map(r => <p key={r.id}>{statuses[r.status]} · {r.reviewer ?? "审核成员"} · {new Date(r.createdAt).toLocaleString("zh-CN")} {r.reason ?? ""}</p>) : <p className="muted">尚无人工审核记录。</p>}</details>

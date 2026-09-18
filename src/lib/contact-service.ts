@@ -5,6 +5,7 @@ import { extractContacts, isSyntheticContact } from "./contact-extractor";
 import { extractionAllowed, contactUsable } from "./contact-policy";
 import { canMaintain, type Role } from "./permissions";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
+import { suppressionFingerprint } from "./data-protection";
 import type { ExtractionInput, ReviewInput } from "./contact-validation";
 
 export class ContactError extends Error {
@@ -47,8 +48,11 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
     if (candidates.length > 20) throw new ContactError("TOO_MANY_CANDIDATES", "每次最多 20 条候选，请拆分文本");
     if (candidates.some(c => !isSyntheticContact(c.type, c.normalizedValue))) throw new ContactError("SYNTHETIC_ONLY", "仅接受示例域邮箱/链接、demo_ 微信及 +1 202 555 01xx 虚构电话");
     let createdCount = 0;
+    let suppressedCount = 0;
     const ids: string[] = [];
     for (const candidate of candidates) {
+      const suppressed = await tx.contactSuppression.findUnique({ where: { fingerprint: suppressionFingerprint(candidate.type, candidate.normalizedValue) }, select: { expiresAt: true } });
+      if (suppressed && suppressed.expiresAt > now) { suppressedCount++; continue; }
       const dedupeKey = createHash("sha256").update(JSON.stringify([account.id, source.id, source.policyVersion, candidate.type, candidate.normalizedValue])).digest("hex");
       const existing = await tx.contactPoint.findUnique({ where: { dedupeKey } });
       if (existing) { ids.push(existing.id); continue; }
@@ -60,8 +64,8 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
       await tx.auditEvent.create({ data: { actorId, action: "CONTACT_CANDIDATE_CREATED", targetId: item.id } });
       ids.push(item.id); createdCount++;
     }
-    return { ids, createdCount, duplicateCount: candidates.length - createdCount,
-      message: candidates.length ? "候选已保存，尚不可用，必须人工核验" : "未识别到明确商务联系字段；没有猜测或补全任何联系值" };
+    return { ids, createdCount, duplicateCount: candidates.length - createdCount - suppressedCount, suppressedCount,
+      message: candidates.length ? "候选已保存，尚不可用，必须人工核验；被拒绝联系的值不会重新进入候选" : "未识别到明确商务联系字段；没有猜测或补全任何联系值" };
   });
 }
 
