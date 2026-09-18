@@ -96,7 +96,7 @@ describe("R04 policy snapshot incremental migration", () => {
       [accountId],
     );
     expect(workspace.rows).toEqual([{ workspaceVersion: 1, status: "NOT_CONTACTED", note: "" }]);
-    const linkTables = await client!.query(`SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'AccountLinkEvidence') AS evidence, EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'AccountLinkDecision') AS decisions`);
+    const linkTables = await client!.query(`SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = 'AccountLinkEvidence') AS evidence, EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = 'AccountLinkDecision') AS decisions`, [schemaName]);
     expect(linkTables.rows).toEqual([{ evidence: true, decisions: true }]);
   });
 });

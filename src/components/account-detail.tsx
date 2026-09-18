@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const labels: Record<string, string> = { XIAOHONGSHU: "小红书", YOUTUBE: "YouTube", X: "X", DOUYIN: "抖音" };
@@ -57,6 +57,7 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
+  const favoriteTask = useRef<Promise<void> | null>(null);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch(`/api/accounts/${id}`);
@@ -102,13 +103,17 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
   async function toggleFavorite() {
     if (!account || favoriteBusy) return;
     setError(""); setFavoriteBusy(true);
-    try {
-      const response = await fetch(`/api/accounts/${id}/favorite`, { method: account.favorite ? "DELETE" : "POST", headers: { Origin: window.location.origin } });
-      const data = await responseData(response);
-      if (!response.ok) { setError(messageOf(data, "收藏状态更新失败")); return; }
-      setAccount((current) => current ? { ...current, favorite: Boolean(data.favorite) } : current);
-    } catch { setError("收藏状态更新失败，请检查网络连接"); }
-    finally { setFavoriteBusy(false); }
+    const task = (async () => {
+      try {
+        const response = await fetch(`/api/accounts/${id}/favorite`, { method: account.favorite ? "DELETE" : "POST", headers: { Origin: window.location.origin } });
+        const data = await responseData(response);
+        if (!response.ok) { setError(messageOf(data, "收藏状态更新失败")); return; }
+        setAccount((current) => current ? { ...current, favorite: Boolean(data.favorite) } : current);
+      } catch { setError("收藏状态更新失败，请检查网络连接"); }
+      finally { setFavoriteBusy(false); }
+    })();
+    favoriteTask.current = task;
+    try { await task; } finally { if (favoriteTask.current === task) favoriteTask.current = null; }
   }
 
   function changeFollowUpStatus(status: string) {
@@ -125,6 +130,7 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
     if (!account || workspaceBusy) return;
     setError(""); setWorkspaceSaved(false); setWorkspaceBusy(true);
     try {
+      if (favoriteTask.current) await favoriteTask.current;
       const response = await fetch(`/api/accounts/${id}/workspace`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Origin: window.location.origin },
