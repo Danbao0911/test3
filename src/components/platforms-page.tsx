@@ -9,6 +9,11 @@ import type { PlatformPreflight } from "@/lib/platform-service";
 const operationLabels: Record<PlatformOperation, string> = {
   discoverAccounts: "关键词发现", fetchProfile: "账号资料读取", refreshRecord: "资料刷新", handleDeletion: "平台删除同步",
 };
+const accessPathLabels: Record<PlatformCapabilities["accessPath"], string> = {
+  PROJECT_APP_PENDING: "等待项目应用核验",
+  AUTHORIZED_SUBJECT_ONLY: "仅主动授权主体资料",
+  MANUAL_IMPORT_ONLY: "仅获准人工导入",
+};
 const statusLabels = { not_configured: "未配置 / 未验证", permission_required: "缺少许可", not_supported: "尚不支持" };
 type SourceOption = { id: string; name: string; policyVersion: number; status: string };
 
@@ -76,7 +81,7 @@ export default function PlatformsPage({ items, canCheck }: { items: PlatformCapa
     <section className="card"><h2>能力矩阵</h2><div className="table-wrap"><table>
       <thead><tr><th>平台</th>{platformOperations.map(key => <th key={key}>{operationLabels[key]}</th>)}<th>接入说明</th></tr></thead>
       <tbody>{items.map(item => <tr key={item.platform}>
-        <td>{item.label}<p className="small muted">真实验证：未验证</p></td>
+        <td>{item.label}<p className="small muted">真实验证：未验证</p><p className="small muted">当前通路：{accessPathLabels[item.accessPath]}</p></td>
         {platformOperations.map(key => <td key={key}>{statusLabels[item.operations[key].status]}</td>)}
         <td style={{ maxWidth: 420 }}>{item.limitation}<p className="small muted">本项目允许的平台请求数：0；平台实际配额待验证。</p><button className="button secondary" disabled aria-label={`${item.label} 外部搜索不可用`}>外部搜索未开放</button></td>
       </tr>)}</tbody>

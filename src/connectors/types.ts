@@ -24,6 +24,8 @@ export type DisabledResult = {
 export type PlatformCapabilities = {
   platform: PlatformId;
   label: string;
+  /** The only currently documented path must be explicit in the UI. */
+  accessPath: "PROJECT_APP_PENDING" | "AUTHORIZED_SUBJECT_ONLY" | "MANUAL_IMPORT_ONLY";
   state: "unconfigured" | "not_supported";
   verifiedAt: null;
   externalRequestsEnabled: false;
