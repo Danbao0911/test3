@@ -14,7 +14,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="zh-CN">
       <body>
-        {user ? <Navigation email={user.email} mode={currentRuntimeMode()} /> : null}
+        {user ? <Navigation email={user.email} mode={currentRuntimeMode()} role={user.role} /> : null}
         {children}
       </body>
     </html>

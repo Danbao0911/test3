@@ -6,7 +6,8 @@ import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../src/generated/prisma/client";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { parseTestDatabaseConfig } from "../helpers/test-database";
+import { parseTestDatabaseConfig, assertRestrictedTestRole } from "../helpers/test-database";
+import pg from "pg";
 
 const database = parseTestDatabaseConfig();
 const baseUrl = process.env.TEST_APP_ORIGIN ?? "http://127.0.0.1:3100";
@@ -23,6 +24,19 @@ let cookie = "";
 let adminEmail = "";
 let identityANative = "";
 let identityBProfileUrl = "";
+let databaseReady = false;
+
+async function stopTestServer(child: ChildProcess | undefined) {
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  try {
+    if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGTERM");
+    else child.kill("SIGTERM");
+  } catch {
+    // The process may have exited between the check and the signal.
+  }
+  await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 5_000))]);
+}
 
 type ApiItem = { id: string; status?: string; rows?: unknown[]; [key: string]: unknown };
 type ApiError = { rowNumber: number; errorCode?: string; errorMessage?: string };
@@ -79,10 +93,15 @@ async function createSource(name: string, approve = true) {
   const id = result.data.item.id as string;
   createdSourceIds.push(id);
   if (approve) {
-    const approved = await request(`/api/sources/${id}`, { method: "PATCH", ...jsonBody({ status: "APPROVED", allowImport: true }) });
+    const approved = await request(`/api/sources/${id}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: result.data.item.policyVersion, status: "APPROVED", allowImport: true }) });
     expect(approved.response.status).toBe(200);
   }
   return id;
+}
+
+async function patchSource(id: string, patch: Record<string, unknown>) {
+  const current = await request(`/api/sources/${id}`);
+  return request(`/api/sources/${id}`, { method: "PATCH", ...jsonBody({ ...patch, expectedPolicyVersion: current.data.item.policyVersion }) });
 }
 
 function accountBody(sourceId: string, suffix: string, nativeId = `r1-${suffix}`) {
@@ -93,15 +112,25 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   let primarySourceId = "";
   let accountSourceId = "";
   let firstBatchId = "";
+  let contactSourceId = "";
+  let contactAccountId = "";
+  let contactIds: string[] = [];
+  const contactText = "商务邮箱：review@example.com\n商务微信：demo_review\n企业电话：+1 202 555 0100\n官网联系页：https://example.com/contact\n商务预约：https://example.com/book";
+  const extractInput = (text = contactText, sourceOverride = contactSourceId, accountOverride = contactAccountId) => ({ accountId: accountOverride, sourceId: sourceOverride, sourceUrl: "https://example.com/demo/evidence/contacts", capturedAt: new Date(Date.now() - 60000).toISOString(), fieldLocation: "账号简介商务栏", context: "ACCOUNT_PROFILE", text });
+  const reviewInput = (version = 1, status = "APPROVED") => ({ version, status, ownershipConfirmed: true, businessConfirmed: true, reason: "已核对字段证据，主体和商务用途一致" });
 
   beforeAll(async () => {
+    const guard = new pg.Client({ connectionString: database.url });
+    try { await guard.connect(); await assertRestrictedTestRole(guard, database.databaseName); databaseReady = true; }
+    finally { await guard.end(); }
     adminEmail = `r1-${runId}-${randomUUID()}@example.test`;
-    const user = await prisma.user.create({ data: { email: adminEmail, passwordHash: await bcrypt.hash(password, 4) } });
+    const user = await prisma.user.create({ data: { email: adminEmail, passwordHash: await bcrypt.hash(password, 4), role: "ADMIN" } });
     userId = user.id;
     server = spawn(process.env.PNPM_BIN ?? "pnpm", ["dev", "-p", "3100"], {
       cwd: process.cwd(),
       env: { ...process.env, APP_MODE: "test", APP_ORIGIN: baseUrl, DATABASE_URL: database.url, TEST_DATABASE_URL: database.url, TEST_DATABASE_NAME: database.databaseName, TEST_DATABASE_MODE: "isolated", TEST_RUN_ID: runId, AUTH_COOKIE_NAME: "test3_session" },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     server.stdout?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
     server.stderr?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
@@ -112,17 +141,20 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
   }, 120_000);
 
   afterAll(async () => {
-    if (server && server.exitCode === null) server.kill("SIGTERM");
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!databaseReady) { await prisma.$disconnect(); return; }
+    await stopTestServer(server);
     if (createdBatchIds.length) await prisma.importBatch.deleteMany({ where: { id: { in: createdBatchIds } } });
     if (createdSourceIds.length) await prisma.account.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
+    if (userId) await prisma.auditEvent.deleteMany({ where: { actorId: userId } });
+    if (createdSourceIds.length) await prisma.sourcePolicySnapshot.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     const throttleKey = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
     if (userId) {
+      await prisma.deletionRequest.deleteMany({ where: { OR: [{ requestedById: userId }, { completedById: userId }] } });
       await prisma.session.deleteMany({ where: { userId } });
       await prisma.user.deleteMany({ where: { id: userId } });
     }
-    await prisma.loginThrottle.deleteMany({ where: { keyHash: throttleKey } });
+    await prisma.loginThrottle.deleteMany({ where: { keyHash: { in: [throttleKey, createHash("sha256").update("missing@example.test").digest("hex")] } } });
     await prisma.$disconnect();
   }, 30_000);
 
@@ -157,17 +189,74 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect(draftState.data.item.status).toBe("DRAFT");
     const draftBlocked = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(draft, `draft-blocked-${randomUUID()}`)) });
     expect(draftBlocked.response.status).toBe(403);
-    const approved = await request(`/api/sources/${draft}`, { method: "PATCH", ...jsonBody({ status: "APPROVED", allowImport: true }) });
+    const approved = await patchSource(draft, { status: "APPROVED", allowImport: true });
     expect(approved.response.status).toBe(200);
-    const revoked = await request(`/api/sources/${draft}`, { method: "PATCH", ...jsonBody({ status: "REVOKED", allowImport: false }) });
+    const revoked = await patchSource(draft, { status: "REVOKED", allowImport: false });
     expect(revoked.response.status).toBe(200);
     const blocked = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(draft, `blocked-${randomUUID()}`)) });
     expect(blocked.response.status).toBe(403);
     const expiring = await createSource(`R1 expiring ${randomUUID()}`);
-    const expires = await request(`/api/sources/${expiring}`, { method: "PATCH", ...jsonBody({ expiresAt: new Date(Date.now() - 60_000).toISOString() }) });
+    const expires = await patchSource(expiring, { expiresAt: new Date(Date.now() - 60_000).toISOString() });
     expect(expires.response.status).toBe(200);
     const expired = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(expiring, `expired-${randomUUID()}`)) });
     expect(expired.response.status).toBe(403);
+  });
+
+  it("R01 来源策略拒绝旧表单、同内容不升版，并保留每个真实版本", async () => {
+    const sourceId = await createSource(`R01 policy ${randomUUID()}`);
+    const missingVersion = await request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ retentionDays: 45 }) });
+    expect(missingVersion.response.status).toBe(422);
+    const initial = await request(`/api/sources/${sourceId}`);
+    expect((await request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ allowExtract: true, allowEvidenceText: true, expectedPolicyVersion: initial.data.item.policyVersion }) })).response.status).toBe(200);
+    const versionForBoth = (await request(`/api/sources/${sourceId}`)).data.item.policyVersion as number;
+    const auditBeforeClose = await prisma.auditEvent.count({ where: { targetId: sourceId } });
+    const close = await request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: versionForBoth, allowExtract: false, allowEvidenceText: false }) });
+    expect(close.response.status).toBe(200);
+    const stale = await request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: versionForBoth, allowExtract: true, allowEvidenceText: true, retentionDays: 45 }) });
+    expect(stale.response.status).toBe(409); expect(stale.data.error).toBe("SOURCE_POLICY_CONFLICT");
+    const afterStale = await request(`/api/sources/${sourceId}`);
+    expect(afterStale.data.item).toMatchObject({ allowExtract: false, allowEvidenceText: false, policyVersion: (close.data.item.policyVersion as number) });
+    expect(await prisma.auditEvent.count({ where: { targetId: sourceId } })).toBe(auditBeforeClose + 1);
+    expect((await request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: afterStale.data.item.policyVersion }) })).data.item.policyVersion).toBe(afterStale.data.item.policyVersion);
+    expect(await prisma.auditEvent.count({ where: { targetId: sourceId } })).toBe(auditBeforeClose + 1);
+    const history = await request(`/api/sources/${sourceId}/history`);
+    expect(history.response.status).toBe(200);
+    expect(history.data.items.map((item: ApiItem) => item.version)).toEqual([4, 3, 2, 1]);
+    expect(history.data.items.find((item: ApiItem) => item.version === 3)).toMatchObject({ allowExtract: true, allowEvidenceText: true, isLegacy: false });
+    expect(history.data.items.find((item: ApiItem) => item.version === 4)).toMatchObject({ allowExtract: false, allowEvidenceText: false });
+    await prisma.user.update({ where: { id: userId }, data: { role: "VIEWER" } });
+    try {
+      const viewerHistory = await request(`/api/sources/${sourceId}/history`);
+      expect(viewerHistory.response.status).toBe(200);
+      expect(viewerHistory.data.items[0]).not.toHaveProperty("authorizationBasis");
+      expect(viewerHistory.data.items[0]).not.toHaveProperty("allowExtract");
+    } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
+  });
+
+  it("R01 同一策略版本并发更新仅一个成功，另一个返回 409", async () => {
+    const sourceId = await createSource(`R01 concurrent ${randomUUID()}`);
+    const current = await request(`/api/sources/${sourceId}`);
+    const expectedPolicyVersion = current.data.item.policyVersion as number;
+    const [left, right] = await Promise.all([
+      request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion, retentionDays: 31 }) }),
+      request(`/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion, retentionDays: 32 }) }),
+    ]);
+    expect([left.response.status, right.response.status].sort()).toEqual([200, 409]);
+    const final = await request(`/api/sources/${sourceId}`);
+    expect(final.data.item.policyVersion).toBe(expectedPolicyVersion + 1);
+    expect([31, 32]).toContain(final.data.item.retentionDays);
+  });
+
+  it("R04 legacy/unknown 快照只保留未知标记，不伪造授权或恢复可用性", async () => {
+    const sourceId = await createSource(`R04 legacy ${randomUUID()}`);
+    await prisma.sourcePolicySnapshot.create({ data: {
+      sourceId, version: 99, status: null, allowImport: null, allowExtract: null, allowEvidenceText: null,
+      retentionDays: null, expiresAt: null, permissionNote: null, authorizationBasis: "legacy/unknown",
+      changeType: "LEGACY_TEST", isLegacy: true,
+    } });
+    const history = await request(`/api/sources/${sourceId}/history`);
+    expect(history.data.items[0]).toMatchObject({ version: 99, isLegacy: true, authorizationBasis: "legacy/unknown" });
+    expect(history.data.items[0].allowExtract).toBeNull();
   });
 
   it("T04 创建同名不同主页账号不会错误合并", async () => {
@@ -197,6 +286,29 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     identityANative = a.nativeId!; identityBProfileUrl = b.profileUrl;
     const conflict = await request("/api/accounts", { method: "POST", ...jsonBody({ ...a, profileUrl: b.profileUrl }) });
     expect(conflict.response.status).toBe(409); expect(conflict.data.error).toBe("IDENTITY_CONFLICT");
+  });
+
+  it("LATEST-R01 删除重录按独立身份规则阻止单条、漏填 ID 和 CSV", async () => {
+    const deleted = accountBody(accountSourceId, `deleted-identity-${randomUUID()}`, `deleted-native-${randomUUID()}`);
+    const created = await request("/api/accounts", { method: "POST", ...jsonBody(deleted) });
+    expect(created.response.status).toBe(201);
+    const deletedId = created.data.item.id as string;
+    const removed = await request("/api/deletion-requests", { method: "POST", ...jsonBody({ accountId: deletedId, reason: "LATEST 身份规则隔离验证", confirm: true }) });
+    expect(removed.response.status).toBe(201);
+
+    const sameNative = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, profileUrl: `https://example.com/demo/x/other-${randomUUID()}` }) });
+    expect(sameNative.response.status).toBe(409); expect(sameNative.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const sameProfileWithoutNative = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, nativeId: null }) });
+    expect(sameProfileWithoutNative.response.status).toBe(409); expect(sameProfileWithoutNative.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const sameNativeDifferentLegalProfile = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, profileUrl: `https://example.com/demo/x/legal-${randomUUID()}` }) });
+    expect(sameNativeDifferentLegalProfile.response.status).toBe(409); expect(sameNativeDifferentLegalProfile.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const differentIdentity = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, nativeId: `different-${randomUUID()}`, profileUrl: `https://example.com/demo/x/different-${randomUUID()}`, displayName: deleted.displayName }) });
+    expect(differentIdentity.response.status).toBe(201);
+
+    const csv = Buffer.from(`platform,nativeId,displayName,profileUrl,organization,serviceTags,region,sourceUrl\nX,${deleted.nativeId},CSV blocked,https://example.com/demo/x/csv-${randomUUID()},机构,财富规划,上海,https://example.com/demo/source/csv-${randomUUID()}\n`);
+    const imported = await request("/api/imports", { method: "POST", headers: { "Idempotency-Key": `latest-identity-${randomUUID()}` }, body: csvForm(accountSourceId, csv) });
+    expect(imported.response.status).toBe(201); expect(imported.data.item).toMatchObject({ createdCount: 0, invalidCount: 1 });
+    createdBatchIds.push(imported.data.item.id as string);
   });
 
   it("T07 首次 90 行导入得到 60 新增、20 重复、10 失败", async () => {
@@ -279,6 +391,245 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect(await prisma.importBatch.count({ where: { createdById: userId, idempotencyKey: key } })).toBe(0);
   });
 
+  it("C01 仅批准账号录入不能提取；拒绝前不持久化证据", async () => {
+    contactSourceId = await createSource(`C01 ${randomUUID()}`);
+    const account = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(contactSourceId, `contact-${randomUUID()}`)) });
+    expect(account.response.status).toBe(201); contactAccountId = account.data.item.id;
+    const rejected = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) });
+    expect(rejected.response.status).toBe(403);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(0);
+    const badPolicy = await patchSource(contactSourceId, { allowExtract: true });
+    expect(badPolicy.response.status).toBe(422);
+    const policy = await patchSource(contactSourceId, { allowExtract: true, allowEvidenceText: true, retentionDays: 30 });
+    expect(policy.response.status).toBe(200);
+  });
+
+  it("C02 五类候选真实落库且各有独立证据、默认待审核", async () => {
+    const result = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) });
+    expect(result.response.status).toBe(200); expect(result.data.createdCount).toBe(5);
+    contactIds = result.data.ids as string[];
+    const stored = await prisma.contactPoint.findMany({ where: { id: { in: contactIds } }, include: { evidence: true } });
+    expect(stored).toHaveLength(5);
+    expect(stored.every(c => c.status === "PENDING" && !c.ownershipConfirmed && !c.businessConfirmed)).toBe(true);
+    expect(new Set(stored.map(c => c.evidenceId)).size).toBe(5);
+    for (const item of stored) { expect(item.evidence.excerpt).toContain(item.rawValue); expect(item.evidence.excerpt).not.toContain("\n"); }
+  });
+
+  it("C03 并发及重复提取不重复写入，不覆盖已审核状态", async () => {
+    const results = await Promise.all([1, 2].map(() => request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) })));
+    for (const result of results) { expect(result.response.status).toBe(200); expect(result.data.createdCount).toBe(0); expect(result.data.duplicateCount).toBe(5); }
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(5);
+  });
+
+  it("C04 拒绝无确认/空原因，审核员可以核验但不能管理来源", async () => {
+    await prisma.user.update({ where: { id: userId }, data: { role: "REVIEWER" } });
+    try {
+      expect((await request(`/api/sources/${contactSourceId}`, { method: "PATCH", ...jsonBody({ allowExtract: false }) })).response.status).toBe(403);
+      expect((await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...jsonBody({ ...reviewInput(), ownershipConfirmed: false }) })).response.status).toBe(422);
+      expect((await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...jsonBody({ ...reviewInput(), reason: " " }) })).response.status).toBe(422);
+      expect(await prisma.reviewDecision.count({ where: { contactId: contactIds[0] } })).toBe(0);
+      const approved = await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...jsonBody(reviewInput()) });
+      expect(approved.response.status).toBe(200);
+      const detail = await request(`/api/contacts/${contactIds[0]}`);
+      expect(detail.data.item).toMatchObject({ status: "APPROVED", usable: true, value: "review@example.com", version: 2 });
+      expect(await prisma.reviewDecision.count({ where: { contactId: contactIds[0], reviewerId: userId } })).toBe(1);
+      const noop = await patchSource(contactSourceId, {});
+      expect(noop.response.status).toBe(403);
+      expect(noop.data.error).toBe("FORBIDDEN");
+      expect((await request(`/api/contacts/${contactIds[0]}`)).data.item.usable).toBe(true);
+    } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
+  });
+
+  it("C05 只读 API 无原值/证据泄漏且所有写入均 403", async () => {
+    await prisma.user.update({ where: { id: userId }, data: { role: "VIEWER" } });
+    try {
+      const paths = [`/api/contacts/${contactIds[0]}`, `/api/contacts?accountId=${contactAccountId}`, `/api/accounts/${contactAccountId}`];
+      for (const pathname of paths) {
+        const result = await request(pathname);
+        expect(result.response.status).toBe(200);
+        expect(JSON.stringify(result.data)).not.toContain("review@example.com");
+        expect(JSON.stringify(result.data)).not.toContain("账号简介商务栏");
+      }
+      const detail = await request(`/api/contacts/${contactIds[0]}`);
+      expect(detail.data.item).toMatchObject({ value: "***", evidence: null, masked: true });
+      for (const [pathname, method, body] of [
+        ["/api/contacts/extract", "POST", extractInput()], [`/api/contacts/${contactIds[0]}`, "PATCH", reviewInput(2, "INVALID")],
+        ["/api/accounts", "POST", accountBody(contactSourceId, "viewer")], [`/api/accounts/${contactAccountId}`, "PATCH", { displayName: "changed" }],
+        ["/api/sources", "POST", { name: "viewer", type: "DEMO" }], [`/api/sources/${contactSourceId}`, "PATCH", { status: "REVOKED" }],
+      ] as const) expect((await request(pathname, { method, ...jsonBody(body) })).response.status).toBe(403);
+      for (const pathname of ["/api/imports", "/api/imports/preview"]) expect((await request(pathname, { method: "POST", body: csvForm(contactSourceId) })).response.status).toBe(403);
+    } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
+  });
+
+  it("C06 并发审核只能提交一个版本，冲突返回 409", async () => {
+    const results = await Promise.all(["APPROVED", "REJECTED"].map(status => request(`/api/contacts/${contactIds[1]}`, { method: "PATCH", ...jsonBody(reviewInput(1, status)) })));
+    expect(results.map(r => r.response.status).sort()).toEqual([200, 409]);
+    expect(await prisma.reviewDecision.count({ where: { contactId: contactIds[1] } })).toBe(1);
+  });
+
+  it("C07 驳回/失效留存历史，不能直接重新批准，重复提取不复活", async () => {
+    expect((await request(`/api/contacts/${contactIds[2]}`, { method: "PATCH", ...jsonBody(reviewInput(1, "REJECTED")) })).response.status).toBe(200);
+    expect((await request(`/api/contacts/${contactIds[2]}`, { method: "PATCH", ...jsonBody(reviewInput(2)) })).response.status).toBe(409);
+    expect((await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...jsonBody(reviewInput(2, "INVALID")) })).response.status).toBe(200);
+    expect((await request(`/api/contacts/${contactIds[0]}`)).data.item.usable).toBe(false);
+    await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) });
+    expect((await prisma.contactPoint.findUniqueOrThrow({ where: { id: contactIds[2] } })).status).toBe("REJECTED");
+    expect(await prisma.reviewDecision.count({ where: { contactId: contactIds[0] } })).toBe(2);
+  });
+
+  it("C08 缺失、评论、广告、第三方文本返回零候选且不持久化原文", async () => {
+    for (const context of ["COMMENT", "ADVERTISEMENT", "THIRD_PARTY"]) {
+      const result = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), context }) });
+      expect(result.response.status).toBe(200); expect(result.data.ids).toEqual([]);
+    }
+    const empty = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("提供财富规划，没有提供联系方式")) });
+    expect(empty.data.createdCount).toBe(0);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(5);
+  });
+
+  it("R02 失效、拒绝联系和跨行第三方说明均不产生候选或审计事件", async () => {
+    const beforeEvidence = await prisma.evidence.count({ where: { accountId: contactAccountId } });
+    const beforeContacts = await prisma.contactPoint.count({ where: { evidence: { accountId: contactAccountId } } });
+    const beforeAudit = await prisma.auditEvent.count({ where: { action: "CONTACT_CANDIDATE_CREATED" } });
+    const samples = [
+      "官网联系页：https://example.com/contact（已失效）",
+      "商务预约：https://example.com/book (do not contact)",
+      "商务联系页：这是第三方资料\n企业电话：+1 202 555 0100",
+    ];
+    for (const text of samples) {
+      const result = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput(text)) });
+      expect(result.response.status).toBe(200); expect(result.data.ids).toEqual([]); expect(result.data.createdCount).toBe(0);
+    }
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(beforeEvidence);
+    expect(await prisma.contactPoint.count({ where: { evidence: { accountId: contactAccountId } } })).toBe(beforeContacts);
+    expect(await prisma.auditEvent.count({ where: { action: "CONTACT_CANDIDATE_CREATED" } })).toBe(beforeAudit);
+  });
+
+  it("R03 联系目标和证据地址保留完整 query/fragment，差异目标不合并", async () => {
+    const sourceUrl = "https://example.com/about#business-contact";
+    const semicolon = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput("商务预约：https://example.com/book;service=trust"), sourceUrl }) });
+    expect(semicolon.response.status).toBe(200); expect(semicolon.data.createdCount).toBe(1);
+    const hashRoutes = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput("商务预约：https://example.com/#/consultation\n商务预约：https://example.com/#/board"), sourceUrl }) });
+    expect(hashRoutes.response.status).toBe(200); expect(hashRoutes.data.createdCount).toBe(2);
+    const ids = [...(semicolon.data.ids as string[]), ...(hashRoutes.data.ids as string[])];
+    const stored = await prisma.contactPoint.findMany({ where: { id: { in: ids } }, include: { evidence: true } });
+    expect(stored.map(item => item.normalizedValue).sort()).toEqual(["https://example.com/#/board", "https://example.com/#/consultation", "https://example.com/book;service=trust"].sort());
+    for (const item of stored) { expect(item.evidence.sourceUrl).toBe(sourceUrl); expect(item.evidence.fieldLocation).toContain("第"); }
+    for (const id of ids) {
+      const detail = await request(`/api/contacts/${id}`);
+      expect(detail.response.status).toBe(200); expect((detail.data.item.evidence as { sourceUrl: string }).sourceUrl).toBe(sourceUrl);
+    }
+    const replay = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput("商务预约：https://example.com/book;service=trust"), sourceUrl }) });
+    expect(replay.response.status).toBe(200); expect(replay.data.createdCount).toBe(0); expect(replay.data.duplicateCount).toBe(1);
+    expect(await prisma.contactPoint.count({ where: { evidence: { accountId: contactAccountId } } })).toBe(8);
+  });
+
+  it("C09 请求体/时间/地址/真实联系值/来源不匹配均被拒绝", async () => {
+    const malformed = await request("/api/contacts/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
+    expect(malformed.response.status).toBe(400);
+    const large = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), text: "a".repeat(33000) }) });
+    expect(large.response.status).toBe(413);
+    for (const patch of [{ sourceUrl: "https://[::1]/proof" }, { capturedAt: new Date(Date.now() + 86400000).toISOString() }, { capturedAt: new Date(0).toISOString() }, { text: "商务邮箱：nobody@invalid.invalid" }]) {
+      const result = await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), ...patch }) });
+      expect(result.response.status, `invalid field: ${Object.keys(patch).join(",")}; code: ${result.data.error}`).toBe(422);
+    }
+    expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), accountId: randomUUID() }) })).response.status).toBe(404);
+    const different = await createSource(`different ${randomUUID()}`);
+    await patchSource(different, { allowExtract: true, allowEvidenceText: true });
+    expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody({ ...extractInput(), sourceId: different }) })).response.status).toBe(403);
+    expect(await prisma.evidence.count({ where: { accountId: contactAccountId } })).toBe(8);
+  });
+
+  it("C10 数据库拒绝无证据及无确认的已批准记录", async () => {
+    await expect(prisma.contactPoint.update({ where: { id: contactIds[3] }, data: { status: "APPROVED" } })).rejects.toThrow();
+    await expect(prisma.contactPoint.create({ data: { evidenceId: randomUUID(), dedupeKey: randomUUID(), type: "EMAIL", rawValue: "invalid@example.com", normalizedValue: "invalid@example.com", expiresAt: new Date(Date.now() + 1000) } })).rejects.toThrow();
+    expect((await prisma.contactPoint.findUniqueOrThrow({ where: { id: contactIds[3] } })).status).toBe("PENDING");
+  });
+
+  it("C11 联系过期后不可批准；审计中没有原值、正文或原因", async () => {
+    await prisma.contactPoint.update({ where: { id: contactIds[4] }, data: { expiresAt: new Date(0) } });
+    expect((await request(`/api/contacts/${contactIds[4]}`, { method: "PATCH", ...jsonBody(reviewInput()) })).response.status).toBe(422);
+    expect((await request(`/api/contacts/${contactIds[4]}`)).data.item).toMatchObject({ masked: true, usable: false });
+    const audit = JSON.stringify(await prisma.auditEvent.findMany({ where: { actorId: userId } }));
+    expect(audit).not.toContain("review@example.com"); expect(audit).not.toContain("已核对字段证据"); expect(audit).not.toContain("商务邮箱");
+  });
+
+  it("C12 来源变更即时使旧批准失效，新版本必须重新取证", async () => {
+    expect((await request(`/api/contacts/${contactIds[3]}`, { method: "PATCH", ...jsonBody(reviewInput()) })).response.status).toBe(200);
+    expect((await request(`/api/contacts/${contactIds[3]}`)).data.item.usable).toBe(true);
+    expect((await patchSource(contactSourceId, { permissionNote: "更新的虚构处理依据" })).response.status).toBe(200);
+    expect((await request(`/api/contacts/${contactIds[3]}`)).data.item).toMatchObject({ usable: false, masked: true });
+    const newEvidence = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("商务邮箱：fresh@example.com")) });
+    expect(newEvidence.response.status).toBe(200); expect(newEvidence.data.createdCount).toBe(1);
+    contactIds.push((newEvidence.data.ids as string[])[0]);
+  });
+
+  it("C13 来源撤销与审核串行化，撤销后新请求一律拒绝", async () => {
+    const id = contactIds[5];
+    const [review, revoke] = await Promise.all([
+      request(`/api/contacts/${id}`, { method: "PATCH", ...jsonBody(reviewInput()) }),
+      patchSource(contactSourceId, { status: "REVOKED" }),
+    ]);
+    expect([200, 403]).toContain(review.response.status); expect(revoke.response.status).toBe(200);
+    expect((await request(`/api/contacts/${id}`)).data.item).toMatchObject({ usable: false, masked: true });
+    expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) })).response.status).toBe(403);
+    const item = await prisma.contactPoint.findUniqueOrThrow({ where: { id } });
+    expect((await request(`/api/contacts/${id}`, { method: "PATCH", ...jsonBody(reviewInput(item.version)) })).response.status).toBe(403);
+    await patchSource(contactSourceId, { status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, expiresAt: new Date(0).toISOString() });
+    expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) })).response.status).toBe(403);
+  });
+
+  it("C14 未登录/伪造 Origin/未知联系 ID 明确拒绝", async () => {
+    expect((await request("/api/contacts", {}, false)).response.status).toBe(401);
+    expect((await request(`/api/contacts/${contactIds[0]}`, {}, false)).response.status).toBe(401);
+    expect((await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput()) }, false)).response.status).toBe(401);
+    expect((await request(`/api/contacts/${randomUUID()}`)).response.status).toBe(404);
+    const body = jsonBody(reviewInput());
+    expect((await request(`/api/contacts/${contactIds[0]}`, { method: "PATCH", ...body, headers: { ...body.headers, Origin: "https://attacker.invalid", "x-forwarded-host": "127.0.0.1:3100" } })).response.status).toBe(403);
+  });
+
+  it("T05 账号工作台支持筛选、收藏、负责人和人工跟进", async () => {
+    const sourceId = await createSource(`T05 workspace ${randomUUID()}`);
+    await patchSource(sourceId, { allowExtract: true, allowEvidenceText: true });
+    const accountResult = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(sourceId, `workspace-${randomUUID()}`)) });
+    expect(accountResult.response.status).toBe(201);
+    const accountId = accountResult.data.item.id as string;
+    const workspaceVersion = (accountResult.data.item.workspaceVersion as number) ?? 1;
+
+    const pendingList = await request(`/api/accounts?serviceTag=财富规划&hasContact=NO&followUpStatus=NOT_CONTACTED&favorite=NO&pageSize=100`);
+    expect(pendingList.response.status).toBe(200);
+    expect((pendingList.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
+    expect((pendingList.data.items as ApiItem[]).find((item) => item.id === accountId)).toMatchObject({ favorite: false, hasUsableContact: false, reviewStatus: null, followUp: { status: "NOT_CONTACTED", note: "" } });
+
+    const favorite = await request(`/api/accounts/${accountId}/favorite`, { method: "POST", headers: { Origin: baseUrl } });
+    expect(favorite.response.status).toBe(200);
+    const workspace = await request(`/api/accounts/${accountId}/workspace`, { method: "PATCH", ...jsonBody({ expectedWorkspaceVersion: workspaceVersion, ownerId: userId, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" } }) });
+    expect(workspace.response.status).toBe(200);
+    const detail = await request(`/api/accounts/${accountId}`);
+    expect(detail.data.item).toMatchObject({ favorite: true, owner: { id: userId }, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" }, workspaceVersion: workspaceVersion + 1 });
+    const filtered = await request(`/api/accounts?favorite=YES&followUpStatus=CONTACTING&hasContact=NO&pageSize=100`);
+    expect((filtered.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
+
+    const contactAccount = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(sourceId, `workspace-contact-${randomUUID()}`)) });
+    expect(contactAccount.response.status).toBe(201);
+    const contactAccountIdForWorkspace = contactAccount.data.item.id as string;
+    const extracted = await request("/api/contacts/extract", { method: "POST", ...jsonBody(extractInput("商务邮箱：workspace@example.com", sourceId, contactAccountIdForWorkspace)) });
+    expect(extracted.response.status).toBe(200);
+    const contactId = (extracted.data.ids as string[])[0];
+    const approved = await request(`/api/contacts/${contactId}`, { method: "PATCH", ...jsonBody(reviewInput()) });
+    expect(approved.response.status).toBe(200);
+    const available = await request("/api/accounts?contactStatus=APPROVED&hasContact=YES&pageSize=100");
+    expect((available.data.items as ApiItem[]).some((item) => item.id === contactAccountIdForWorkspace)).toBe(true);
+
+    await prisma.user.update({ where: { id: userId }, data: { role: "VIEWER" } });
+    try {
+      expect((await request("/api/users")).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}/favorite`, { method: "DELETE", headers: { Origin: baseUrl } })).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}/workspace`, { method: "PATCH", ...jsonBody({ expectedWorkspaceVersion: detail.data.item.workspaceVersion, followUp: { status: "REPLIED", note: "viewer" } }) })).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}`)).data.item.followUp).toMatchObject({ status: "CONTACTING" });
+    } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
+  });
+
   it("T15 过期会话不能继续访问业务 API", async () => {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const fresh = await request("/api/auth/login", { method: "POST", ...jsonBody({ email: user.email, password }) }, false);
@@ -286,5 +637,18 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     await prisma.session.updateMany({ where: { userId }, data: { expiresAt: new Date(0) } });
     const expired = await request("/api/accounts");
     expect(expired.response.status).toBe(401);
+  });
+
+  it("LATEST-R01 登录并发准入在已有 9 次失败时只允许一个密码校验，并可在窗口后恢复", async () => {
+    const keyHash = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
+    await prisma.loginThrottle.upsert({ where: { keyHash }, update: { attemptCount: 9, inFlightCount: 0, windowStartedAt: new Date() }, create: { keyHash, attemptCount: 9, inFlightCount: 0, windowStartedAt: new Date() } });
+    const attempts = await Promise.all(Array.from({ length: 12 }, () => request("/api/auth/login", { method: "POST", ...jsonBody({ email: adminEmail, password: "wrong-concurrent-password" }) }, false)));
+    expect(attempts.filter((result) => result.response.status === 401)).toHaveLength(1);
+    expect(attempts.filter((result) => result.response.status === 429)).toHaveLength(11);
+    expect(await prisma.loginThrottle.findUnique({ where: { keyHash }, select: { attemptCount: true, inFlightCount: true } })).toMatchObject({ attemptCount: 10, inFlightCount: 0 });
+    await prisma.loginThrottle.update({ where: { keyHash }, data: { windowStartedAt: new Date(Date.now() - 6 * 60 * 1000), attemptCount: 10, inFlightCount: 0 } });
+    const recovered = await request("/api/auth/login", { method: "POST", ...jsonBody({ email: adminEmail, password }) }, false);
+    expect(recovered.response.status).toBe(200);
+    expect(await prisma.loginThrottle.findUnique({ where: { keyHash }, select: { attemptCount: true, inFlightCount: true } })).toMatchObject({ attemptCount: 0, inFlightCount: 0 });
   });
 });

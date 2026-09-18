@@ -7,5 +7,5 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   if (!user) redirect("/login");
   const { id } = await params;
   if (!id) notFound();
-  return <AccountDetail id={id} />;
+  return <AccountDetail id={id} canEdit={user.role !== "VIEWER"} canDelete={user.role === "ADMIN"} />;
 }

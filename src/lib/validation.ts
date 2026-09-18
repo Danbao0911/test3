@@ -3,6 +3,7 @@ import { z } from "zod";
 export const platformValues = ["XIAOHONGSHU", "YOUTUBE", "X", "DOUYIN"] as const;
 export const sourceTypeValues = ["DEMO", "AUTHORIZED_MANUAL"] as const;
 export const sourceStatusValues = ["DRAFT", "APPROVED", "REVOKED"] as const;
+export const followUpStatusValues = ["NOT_CONTACTED", "CONTACTING", "REPLIED", "NOT_MATCH", "DO_NOT_CONTACT"] as const;
 
 const optionalText = (max: number) =>
   z.preprocess(
@@ -39,6 +40,28 @@ export const accountPatchSchema = z
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个可修改字段");
 
+export const followUpPatchSchema = z
+  .object({
+    expectedWorkspaceVersion: z.number().int().positive(),
+    status: z.enum(followUpStatusValues),
+    note: z.string().trim().max(1000),
+    confirmReactivation: z.boolean().optional(),
+  })
+  .strict();
+
+export const workspacePatchSchema = z
+  .object({
+    expectedWorkspaceVersion: z.number().int().positive(),
+    ownerId: z.string().uuid().nullable().optional(),
+    followUp: z.object({
+      status: z.enum(followUpStatusValues),
+      note: z.string().trim().max(1000),
+      confirmReactivation: z.boolean().optional(),
+    }).strict().optional(),
+  })
+  .strict()
+  .refine((value) => value.ownerId !== undefined || value.followUp !== undefined, "至少提供负责人或跟进修改");
+
 export const sourceCreateSchema = z
   .object({
     name: z.string().trim().min(1).max(160),
@@ -47,15 +70,113 @@ export const sourceCreateSchema = z
   })
   .strict();
 
+export const exportFieldValues = ["ACCOUNT_ID", "PLATFORM", "DISPLAY_NAME", "ORGANIZATION", "SERVICE_TAGS", "REGION", "CONTACT_TYPE", "CONTACT_VALUE", "SOURCE_URL", "CAPTURED_AT", "REVIEWED_AT"] as const;
+
 export const sourcePatchSchema = z
   .object({
+    expectedPolicyVersion: z.number().int().positive(),
     permissionNote: z.string().trim().max(2000).optional(),
     status: z.enum(sourceStatusValues).optional(),
     allowImport: z.boolean().optional(),
+    allowExtract: z.boolean().optional(),
+    allowEvidenceText: z.boolean().optional(),
+    allowRelate: z.boolean().optional(),
+    allowExport: z.boolean().optional(),
+    allowedExportFields: z.array(z.enum(exportFieldValues)).max(exportFieldValues.length).optional(),
+    retentionDays: z.number().int().min(1).max(365).optional(),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个来源修改字段");
+
+export const exportCreateSchema = z.object({
+  accountIds: z.array(z.uuid()).max(500).optional(),
+  fields: z.array(z.enum(exportFieldValues)).min(1).max(exportFieldValues.length),
+  filters: z.object({
+    q: z.string().trim().max(120).optional(),
+    platform: z.enum(platformValues).optional(),
+    sourceId: z.uuid().optional(),
+    contactStatus: z.enum(["APPROVED"]).optional(),
+    followUpStatus: z.enum(followUpStatusValues).optional(),
+    favorite: z.enum(["YES", "NO"]).optional(),
+  }).strict().optional().default({}),
+  expiresInMinutes: z.number().int().min(1).max(30).default(10),
+}).strict().refine((value) => new Set(value.fields).size === value.fields.length, "导出字段不能重复");
+
+export const suppressionSchema = z.object({
+  reasonCode: z.enum(["DO_NOT_CONTACT", "INVALID_CONTACT", "USER_REQUEST"]),
+  basis: z.string().trim().min(1).max(500),
+  expiresAt: z.iso.datetime({ offset: true }).optional(),
+}).strict();
+
+export const deletionRequestSchema = z.object({
+  accountId: z.uuid().optional(),
+  contactId: z.uuid().optional(),
+  reason: z.string().trim().min(1).max(500),
+  confirm: z.literal(true),
+}).strict().refine((value) => Boolean(value.accountId) !== Boolean(value.contactId), "必须且只能选择账号或联系项");
+
+export type ExportInput = z.infer<typeof exportCreateSchema>;
+export type SuppressionInput = z.infer<typeof suppressionSchema>;
+export type DeletionRequestInput = z.infer<typeof deletionRequestSchema>;
+
+export const accountLinkCreateSchema = z
+  .object({
+    leftAccountId: z.string().uuid(),
+    rightAccountId: z.string().uuid(),
+    sourceId: z.string().uuid(),
+    basis: z.enum(["MANUAL", "SHARED_CONTACT_CANDIDATE"]),
+    basisContactId: z.string().uuid().optional(),
+    matchingContactId: z.string().uuid().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.basis === "SHARED_CONTACT_CANDIDATE" && (!value.basisContactId || !value.matchingContactId)) {
+      context.addIssue({ code: "custom", path: ["basisContactId"], message: "共享联系候选必须保留两条联系证据的内部引用" });
+    }
+    if (value.basis === "MANUAL" && (value.basisContactId || value.matchingContactId)) {
+      context.addIssue({ code: "custom", path: ["basisContactId"], message: "人工关联不能伪造共享联系证据" });
+    }
+  });
+
+export const accountLinkReviewSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    status: z.enum(["CONFIRMED", "REVOKED"]),
+    reason: z.string().trim().min(1).max(500),
+    evidence: z.array(z.object({
+      sourceId: z.uuid(),
+      referenceEvidenceId: z.uuid().optional(),
+      sourceUrl: z.string().trim().min(1).max(2048).optional(),
+      capturedAt: z.iso.datetime({ offset: true }),
+      fieldLocation: z.string().trim().min(1).max(240),
+      summary: z.string().trim().min(1).max(500),
+      leftAccountId: z.uuid(),
+      rightAccountId: z.uuid(),
+      leftAccountVerified: z.boolean(),
+      rightAccountVerified: z.boolean(),
+    }).strict()).max(4).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    for (const [index, item] of (value.evidence ?? []).entries()) {
+      if (!item.sourceUrl && !item.referenceEvidenceId) {
+        context.addIssue({ code: "custom", path: ["evidence", index, "sourceUrl"], message: "证据必须包含来源地址或已有证据引用" });
+      }
+      if (item.leftAccountId === item.rightAccountId) {
+        context.addIssue({ code: "custom", path: ["evidence", index], message: "证据必须同时指向两个不同账号" });
+      }
+      if (!item.leftAccountVerified || !item.rightAccountVerified) {
+        context.addIssue({ code: "custom", path: ["evidence", index], message: "必须分别核验两侧账号" });
+      }
+    }
+  });
+
+export const accountLinkSuggestionSchema = z.object({
+  contactId: z.uuid(),
+  cursor: z.uuid().optional(),
+  limit: z.number().int().min(1).max(50).default(50),
+}).strict();
 
 export const loginSchema = z
   .object({

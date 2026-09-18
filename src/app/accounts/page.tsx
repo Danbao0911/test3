@@ -5,5 +5,5 @@ import AccountsClientPage from "@/components/accounts-page";
 export default async function AccountsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  return <AccountsClientPage />;
+  return <AccountsClientPage canManage={user.role !== "VIEWER"} />;
 }

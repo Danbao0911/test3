@@ -2,16 +2,89 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
-type Source = { id: string; name: string; type: string; status: string; permissionNote: string; allowImport: boolean; expiresAt: string | null; createdAt: string };
-const typeLabels: Record<string, string> = { DEMO: "演示来源", AUTHORIZED_MANUAL: "经授权人工来源" };
+const exportFields = ["ACCOUNT_ID", "PLATFORM", "DISPLAY_NAME", "ORGANIZATION", "SERVICE_TAGS", "REGION", "CONTACT_TYPE", "CONTACT_VALUE", "SOURCE_URL", "CAPTURED_AT", "REVIEWED_AT"] as const;
+type Source = { id: string; name: string; type: string; status: string; permissionNote: string; allowImport: boolean; allowExtract: boolean; allowEvidenceText: boolean; allowRelate: boolean; allowExport: boolean; allowedExportFields: string[]; retentionDays: number; policyVersion: number; expiresAt: string | null };
 
-export default function SourcesClientPage() {
+export default function SourcesClientPage({ canManage, synthetic }: { canManage: boolean; synthetic: boolean }) {
   const router = useRouter();
-  const [items, setItems] = useState<Source[]>([]); const [name, setName] = useState(""); const [type, setType] = useState("AUTHORIZED_MANUAL"); const [permissionNote, setPermissionNote] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { const response = await fetch("/api/sources"); if (response.status === 401) { router.push("/login"); return; } if (!response.ok) throw new Error("来源列表加载失败"); const data = await response.json(); setItems(data.items); }, [router]);
-  useEffect(() => { queueMicrotask(() => { void load().catch((err) => setError(err instanceof Error ? err.message : "来源列表加载失败，请检查网络连接")); }); }, [load]);
-  async function create(event: FormEvent) { event.preventDefault(); setError(""); setBusy(true); try { const response = await fetch("/api/sources", { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify({ name, type, permissionNote }) }); const data = await response.json(); if (response.status === 401) { router.push("/login"); return; } if (!response.ok) throw new Error(data.message ?? "来源创建失败"); setName(""); setPermissionNote(""); await load(); } catch (err) { setError(err instanceof Error ? err.message : "来源创建失败"); } finally { setBusy(false); } }
-  async function change(id: string, patch: Record<string, unknown>) { setError(""); setBusy(true); try { const response = await fetch(`/api/sources/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify(patch) }); const data = await response.json(); if (response.status === 401) { router.push("/login"); return; } if (!response.ok) throw new Error(data.message ?? "来源更新失败"); await load(); } catch (err) { setError(err instanceof Error ? err.message : "来源更新失败，请检查网络连接"); } finally { setBusy(false); } }
-  return <main className="page"><div className="page-header"><div><h1 className="page-title">数据来源</h1><p className="page-subtitle">来源能力默认关闭；批准表示管理员登记/确认，不表示平台认证通过。测试/演示模式只允许演示来源。</p></div></div><section className="card" style={{ marginBottom: 18 }}><h2 style={{ marginTop: 0, fontSize: 18 }}>登记新来源</h2><form className="form-grid" onSubmit={create}><div className="field"><label htmlFor="name">来源名称</label><input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={160} required /></div><div className="field"><label htmlFor="type">来源类型</label><select id="type" value={type} onChange={(e) => setType(e.target.value)}><option value="AUTHORIZED_MANUAL">经授权人工来源</option><option value="DEMO">演示来源</option></select></div><div className="field full"><label htmlFor="permissionNote">允许录入依据说明</label><textarea id="permissionNote" value={permissionNote} onChange={(e) => setPermissionNote(e.target.value)} maxLength={2000} placeholder="记录来源、授权范围和用途依据；批准前必须填写。" /></div>{error ? <div className="notice error full" role="alert">{error}</div> : null}<div className="form-actions full"><button className="button" disabled={busy}>{busy ? "保存中…" : "创建 DRAFT 来源"}</button></div></form></section><section className="card"><div className="table-wrap"><table><thead><tr><th>名称</th><th>类型</th><th>状态</th><th>录入能力</th><th>依据说明</th><th>失效时间</th><th>操作</th></tr></thead><tbody>{items.length ? items.map((source) => <tr key={source.id}><td>{source.name}</td><td>{typeLabels[source.type] ?? source.type}</td><td><span className={`badge ${source.status === "APPROVED" ? "success" : source.status === "REVOKED" ? "danger" : "warning"}`}>{source.status}</span></td><td>{source.status === "APPROVED" && source.allowImport && (!source.expiresAt || new Date(source.expiresAt) > new Date()) ? <span className="badge success">允许录入</span> : <span className="badge neutral">关闭</span>}</td><td className="pre-wrap" style={{ maxWidth: 360 }}>{source.permissionNote || "—"}</td><td>{source.expiresAt ? new Date(source.expiresAt).toLocaleString("zh-CN") : "永久"}</td><td><div className="inline-actions">{source.status !== "APPROVED" ? <button className="button" disabled={busy} onClick={() => void change(source.id, { status: "APPROVED", allowImport: true })}>批准录入</button> : <><button className="button secondary" disabled={busy} onClick={() => { const value = window.prompt("请输入新的失效时间（ISO 8601，留空表示永久）", source.expiresAt ?? ""); if (value !== null) void change(source.id, { expiresAt: value || null }); }}>设置失效时间</button><button className="button danger" disabled={busy} onClick={() => void change(source.id, { status: "REVOKED", allowImport: false })}>撤销</button></>}</div></td></tr>) : <tr><td colSpan={7} className="empty">暂无来源，请先登记。</td></tr>}</tbody></table></div></section></main>;
+  const [items, setItems] = useState<Source[]>([]);
+  const [name, setName] = useState("");
+  const [permissionNote, setPermissionNote] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const type = synthetic ? "DEMO" : "AUTHORIZED_MANUAL";
+  const load = useCallback(async () => {
+    const response = await fetch("/api/sources");
+    if (response.status === 401) { router.push("/login"); return; }
+    if (!response.ok) throw new Error("来源列表加载失败");
+    setItems((await response.json()).items);
+  }, [router]);
+  useEffect(() => { queueMicrotask(() => { void load().catch(() => setError("来源列表加载失败，请重试")); }); }, [load]);
+  async function write(url: string, method: string, body: unknown) {
+    setError(""); setBusy(true);
+    try {
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "来源更新失败");
+      await load();
+      return true;
+    } catch (err) { setError(err instanceof Error ? err.message : "网络异常，请重试"); return false; }
+    finally { setBusy(false); }
+  }
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (await write("/api/sources", "POST", { name, type, permissionNote })) { setName(""); setPermissionNote(""); }
+  }
+  return <main className="page">
+    <div className="page-header"><div><h1 className="page-title">数据来源</h1><p className="page-subtitle">录入、联系提取、证据保留分别授权；策略变更后需按新证据重新核验。管理员登记不代表平台认证。</p></div></div>
+    {error && <div className="notice error" role="alert">{error}</div>}
+    {canManage ? <section className="card" style={{ marginBottom: 18 }}><h2>登记新来源</h2><form className="form-grid" onSubmit={create}>
+      <div className="field"><label htmlFor="name">来源名称</label><input id="name" value={name} onChange={e => setName(e.target.value)} maxLength={160} required disabled={busy} /></div>
+      <div className="field"><label htmlFor="type">来源类型</label><select id="type" value={type} disabled><option value={type}>{synthetic ? "演示来源" : "经授权人工来源"}</option></select></div>
+      <div className="field full"><label htmlFor="permissionNote">允许录入依据说明</label><textarea id="permissionNote" value={permissionNote} onChange={e => setPermissionNote(e.target.value)} maxLength={2000} disabled={busy} /></div>
+      <div className="form-actions full"><button className="button" disabled={busy}>创建 DRAFT 来源</button></div>
+    </form></section> : <p className="notice">当前角色可查看来源；仅管理员可修改策略。</p>}
+    <section className="card"><div className="table-wrap"><table><thead><tr><th>名称 / 版本</th><th>状态 / 到期</th><th>依据</th><th>允许能力</th><th>操作</th></tr></thead><tbody>
+      {items.map(source => <SourceRow key={source.id} source={source} canManage={canManage} busy={busy} save={patch => write(`/api/sources/${source.id}`, "PATCH", { ...patch as Record<string, unknown>, expectedPolicyVersion: source.policyVersion })} />)}
+      {!items.length && <tr><td colSpan={5} className="empty">暂无来源。</td></tr>}
+    </tbody></table></div></section>
+  </main>;
+}
+
+function SourceRow({ source, canManage, busy, save }: { source: Source; canManage: boolean; busy: boolean; save: (patch: unknown) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState(source.permissionNote);
+  const [expiry, setExpiry] = useState(source.expiresAt ?? "");
+  const [extract, setExtract] = useState(source.allowExtract);
+  const [evidence, setEvidence] = useState(source.allowEvidenceText);
+  const [relate, setRelate] = useState(source.allowRelate);
+  const [allowExport, setAllowExport] = useState(source.allowExport);
+  const [allowedExportFields, setAllowedExportFields] = useState(source.allowedExportFields ?? []);
+  const [days, setDays] = useState(source.retentionDays);
+  const expired = source.expiresAt && new Date(source.expiresAt) <= new Date();
+  return <tr data-source-id={source.id}>
+    <td>{source.name}<p className="muted small">策略 v{source.policyVersion}</p><Link className="text-link small" href={`/sources/${source.id}/history`}>查看历史</Link></td>
+    <td>{source.status}{expired ? " · 已到期" : ""}<p className="small">{source.expiresAt ?? "来源未设到期时间"}</p></td>
+    <td className="pre-wrap" style={{ maxWidth: 360 }}>{source.permissionNote || "未填写"}</td>
+    <td>录入：{source.allowImport ? "允许" : "关闭"}<br />联系提取：{source.allowExtract ? "允许" : "关闭"}<br />证据文本：{source.allowEvidenceText ? "允许" : "关闭"}<br />账号关联：{source.allowRelate ? "允许" : "关闭"}<br />受控导出：{source.allowExport ? `允许（${source.allowedExportFields?.length ?? 0} 个字段）` : "关闭"}<br />联系有效期：{source.retentionDays} 天</td>
+    <td>{canManage && <div className="inline-actions">
+      {source.status !== "APPROVED" && <button className="button" disabled={busy} onClick={() => void save({ status: "APPROVED", allowImport: true })}>批准录入</button>}
+      <button className="button secondary" disabled={busy} onClick={() => { setNote(source.permissionNote); setExpiry(source.expiresAt ?? ""); setExtract(source.allowExtract); setEvidence(source.allowEvidenceText); setRelate(source.allowRelate); setAllowExport(source.allowExport); setAllowedExportFields(source.allowedExportFields ?? []); setDays(source.retentionDays); setEditing(!editing); }}>编辑策略</button>
+      {source.status === "APPROVED" && <button className="button danger" disabled={busy} onClick={() => void save({ status: "REVOKED" })}>撤销</button>}
+      {editing && <form className="field" onSubmit={async e => { e.preventDefault(); if (await save({ permissionNote: note, expiresAt: expiry || null, allowExtract: extract, allowEvidenceText: evidence, allowRelate: relate, allowExport, allowedExportFields, retentionDays: days })) setEditing(false); }}>
+        <label>处理依据<textarea aria-label="处理依据" value={note} onChange={e => setNote(e.target.value)} required maxLength={2000} disabled={busy} /></label>
+        <label>到期时间（ISO 格式）<input aria-label="到期时间" value={expiry} onChange={e => setExpiry(e.target.value)} placeholder="2026-12-31T00:00:00Z" disabled={busy} /></label>
+        <label><input type="checkbox" checked={extract} onChange={e => setExtract(e.target.checked)} disabled={busy} />允许联系提取</label>
+        <label><input type="checkbox" checked={evidence} onChange={e => setEvidence(e.target.checked)} disabled={busy} />允许保留最小证据文本</label>
+        <label><input type="checkbox" checked={relate} onChange={e => setRelate(e.target.checked)} disabled={busy} />允许人工账号关联审核</label>
+        <label><input type="checkbox" checked={allowExport} onChange={e => setAllowExport(e.target.checked)} disabled={busy} />允许受控导出已核验字段</label>
+        <fieldset><legend>来源允许导出的字段</legend>{exportFields.map(field => <label key={field}><input type="checkbox" checked={allowedExportFields.includes(field)} onChange={e => setAllowedExportFields(current => e.target.checked ? [...new Set([...current, field])] : current.filter(item => item !== field))} disabled={busy || !allowExport} />{field}</label>)}</fieldset>
+        <label>联系有效天数<input type="number" min={1} max={365} value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy} /></label>
+        <p className="small muted">保存会使旧版本导出和联系项重新核验；字段许可按来源快照独立判断。真实联系人处理仍保持关闭。</p>
+        <button className="button" disabled={busy}>保存策略</button>
+      </form>}
+    </div>}</td>
+  </tr>;
 }

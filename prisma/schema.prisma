@@ -31,13 +31,80 @@ enum ImportRowStatus {
   INVALID
 }
 
+enum UserRole {
+  ADMIN
+  REVIEWER
+  VIEWER
+}
+
+enum ContactType {
+  EMAIL
+  WECHAT
+  PHONE
+  CONTACT_URL
+  BOOKING_URL
+}
+
+enum ContactStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INVALID
+}
+
+enum FollowUpStatus {
+  NOT_CONTACTED
+  CONTACTING
+  REPLIED
+  NOT_MATCH
+  DO_NOT_CONTACT
+}
+
+enum AccountLinkStatus {
+  PENDING
+  CONFIRMED
+  REVOKED
+}
+
+enum AccountLinkBasis {
+  MANUAL
+  SHARED_CONTACT_CANDIDATE
+}
+
+enum ExportJobStatus {
+  READY
+  DOWNLOADED
+  EXPIRED
+  REVOKED
+}
+
+enum DeletionRequestStatus {
+  COMPLETED
+}
+
 model User {
   id            String         @id @default(uuid()) @db.Uuid
   email         String         @unique @db.VarChar(320)
   passwordHash  String
+  role          UserRole       @default(VIEWER)
   createdAt     DateTime       @default(now())
   sessions      Session[]
   importBatches  ImportBatch[]
+  reviews        ReviewDecision[]
+  auditEvents    AuditEvent[]
+  policyChanges  Source[]       @relation("PolicyActor")
+  policySnapshots SourcePolicySnapshot[] @relation("PolicySnapshotActor")
+  ownedAccounts  Account[]      @relation("AccountOwner")
+  favorites      AccountFavorite[]
+  followUpUpdates AccountFollowUp[] @relation("FollowUpUpdater")
+  createdAccountLinks AccountLink[] @relation("AccountLinkCreator")
+  reviewedAccountLinks AccountLink[] @relation("AccountLinkReviewer")
+  createdAccountLinkEvidence AccountLinkEvidence[] @relation("AccountLinkEvidenceCreator")
+  accountLinkDecisions AccountLinkDecision[] @relation("AccountLinkDecisionActor")
+  exportJobs      ExportJob[]
+  requestedDeletions DeletionRequest[] @relation("DeletionRequester")
+  completedDeletions DeletionRequest[] @relation("DeletionCompleter")
+  contactSuppressions ContactSuppression[]
 }
 
 model Session {
@@ -55,10 +122,24 @@ model LoginThrottle {
   id              String   @id @default(uuid()) @db.Uuid
   keyHash         String   @unique @db.VarChar(64)
   attemptCount    Int      @default(0)
+  inFlightCount   Int      @default(0)
   windowStartedAt DateTime
   updatedAt       DateTime @updatedAt
+  reservations    LoginThrottleReservation[]
 
   @@index([updatedAt])
+}
+
+model LoginThrottleReservation {
+  id              String        @id @default(uuid()) @db.Uuid
+  keyHash         String        @db.VarChar(64)
+  windowStartedAt DateTime
+  expiresAt       DateTime
+  releasedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  throttle        LoginThrottle @relation(fields: [keyHash], references: [keyHash], onDelete: Cascade)
+
+  @@index([keyHash, releasedAt, expiresAt])
 }
 
 model Source {
@@ -68,11 +149,25 @@ model Source {
   status         SourceStatus @default(DRAFT)
   permissionNote String       @default("") @db.VarChar(2000)
   allowImport    Boolean      @default(false)
+  allowExtract   Boolean      @default(false)
+  allowEvidenceText Boolean   @default(false)
+  allowRelate    Boolean      @default(false)
+  allowExport    Boolean      @default(false)
+  allowedExportFields String[] @default([]) @db.Text
+  retentionDays  Int          @default(30)
+  policyVersion  Int          @default(1)
+  policyChangedById String?   @db.Uuid
+  policyChangedBy User?       @relation("PolicyActor", fields: [policyChangedById], references: [id], onDelete: Restrict)
   expiresAt      DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   accounts       Account[]
   importBatches  ImportBatch[]
+  evidence       Evidence[]
+  exportManifestEntries ExportJobManifest[]
+  policySnapshots SourcePolicySnapshot[]
+  accountLinks   AccountLink[]
+  accountLinkEvidence AccountLinkEvidence[]
 
   @@index([status, allowImport])
   @@index([expiresAt])
@@ -92,15 +187,53 @@ model Account {
   sourceUrl             String      @db.VarChar(2048)
   capturedAt            DateTime
   isDemo                Boolean     @default(false)
+  ownerId               String?     @db.Uuid
+  workspaceVersion      Int         @default(1)
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   source                Source      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  owner                 User?       @relation("AccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   importRowResults      ImportRowResult[]
+  evidence              Evidence[]
+  exportManifestEntries ExportJobManifest[]
+  favorites             AccountFavorite[]
+  followUp              AccountFollowUp?
+  linksFrom             AccountLink[] @relation("AccountLinkLeft")
+  linksTo               AccountLink[] @relation("AccountLinkRight")
+  contactSuppressions   ContactSuppression[]
+  deletionRequests      DeletionRequest[]
 
   @@unique([platform, normalizedProfileUrl])
   @@unique([platform, nativeId])
   @@index([platform, createdAt, id])
   @@index([sourceId, createdAt])
+  @@index([ownerId, createdAt])
+}
+
+model AccountFavorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @db.Uuid
+  userId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([userId, createdAt])
+}
+
+model AccountFollowUp {
+  id          String       @id @default(uuid()) @db.Uuid
+  accountId   String       @unique @db.Uuid
+  status      FollowUpStatus @default(NOT_CONTACTED)
+  note        String       @default("") @db.VarChar(1000)
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  updatedBy   User?       @relation("FollowUpUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
 }
 
 model ImportBatch {
@@ -136,4 +269,300 @@ model ImportRowResult {
 
   @@unique([batchId, rowNumber])
   @@index([batchId, status])
+}
+
+// One immutable record per source policy version. Legacy rows intentionally carry
+// nullable capability fields and isLegacy=true because their historical grant is unknown.
+model SourcePolicySnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  sourceId          String   @db.Uuid
+  version           Int
+  status            SourceStatus?
+  allowImport       Boolean?
+  allowExtract      Boolean?
+  allowEvidenceText Boolean?
+  allowRelate      Boolean?
+  allowExport      Boolean?
+  allowedExportFields String? @db.Text
+  retentionDays     Int?
+  expiresAt         DateTime?
+  permissionNote    String?  @db.VarChar(2000)
+  authorizationBasis String  @db.VarChar(2000)
+  changedById       String?  @db.Uuid
+  recordedAt        DateTime @default(now())
+  changeType        String   @db.VarChar(50)
+  isLegacy          Boolean  @default(false)
+  source            Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  changedBy         User?    @relation("PolicySnapshotActor", fields: [changedById], references: [id], onDelete: Restrict)
+  evidence          Evidence[]
+  accountLinkEvidence AccountLinkEvidence[]
+  exportManifestEntries ExportJobManifest[]
+
+  @@unique([sourceId, version])
+  @@index([sourceId, recordedAt])
+}
+
+// Immutable, field-specific excerpts only; full input text is never persisted.
+model Evidence {
+  id              String   @id @default(uuid()) @db.Uuid
+  accountId       String   @db.Uuid
+  sourceId        String   @db.Uuid
+  policyVersion   Int
+  policySnapshotId String   @db.Uuid
+  sourceUrl       String   @db.VarChar(2048)
+  capturedAt      DateTime
+  fieldLocation   String   @db.VarChar(240)
+  excerpt         String   @db.VarChar(300)
+  createdAt       DateTime @default(now())
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  source          Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot  SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  contact         ContactPoint?
+  accountLinkReferences AccountLinkEvidence[] @relation("AccountLinkReferenceEvidence")
+  exportManifestEntries ExportJobManifest[]
+
+  @@index([accountId, createdAt])
+  @@index([sourceId, policyVersion])
+}
+
+model ContactPoint {
+  id                  String        @id @default(uuid()) @db.Uuid
+  evidenceId          String        @unique @db.Uuid
+  dedupeKey           String        @unique @db.VarChar(64)
+  type                ContactType
+  rawValue            String        @db.VarChar(2048)
+  normalizedValue     String        @db.VarChar(2048)
+  status              ContactStatus @default(PENDING)
+  ownershipConfirmed  Boolean       @default(false)
+  businessConfirmed   Boolean       @default(false)
+  suppressed          Boolean       @default(false)
+  version             Int           @default(1)
+  expiresAt           DateTime
+  reviewedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  evidence            Evidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  reviews             ReviewDecision[]
+  suppressions        ContactSuppression[]
+  deletionRequests     DeletionRequest[]
+  linkBasisCandidates AccountLink[]  @relation("AccountLinkBasisContact")
+  linkMatchingCandidates AccountLink[] @relation("AccountLinkMatchingContact")
+  exportManifestEntries ExportJobManifest[]
+
+  @@index([status, createdAt, id])
+  @@index([expiresAt])
+}
+
+model AccountLink {
+  id                String            @id @default(uuid()) @db.Uuid
+  leftAccountId     String            @db.Uuid
+  rightAccountId    String            @db.Uuid
+  sourceId          String            @db.Uuid
+  policyVersion     Int
+  basis             AccountLinkBasis
+  status            AccountLinkStatus @default(PENDING)
+  basisContactId    String?           @db.Uuid
+  matchingContactId String?           @db.Uuid
+  reason            String            @default("") @db.VarChar(500)
+  version           Int               @default(1)
+  createdById       String            @db.Uuid
+  reviewedById      String?           @db.Uuid
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  leftAccount       Account           @relation("AccountLinkLeft", fields: [leftAccountId], references: [id], onDelete: Cascade)
+  rightAccount      Account           @relation("AccountLinkRight", fields: [rightAccountId], references: [id], onDelete: Cascade)
+  source            Source            @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  basisContact      ContactPoint?     @relation("AccountLinkBasisContact", fields: [basisContactId], references: [id], onDelete: SetNull)
+  matchingContact   ContactPoint?     @relation("AccountLinkMatchingContact", fields: [matchingContactId], references: [id], onDelete: SetNull)
+  createdBy         User              @relation("AccountLinkCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  reviewedBy        User?             @relation("AccountLinkReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  evidences         AccountLinkEvidence[]
+  decisions         AccountLinkDecision[]
+
+  @@unique([leftAccountId, rightAccountId])
+  @@index([status, createdAt])
+  @@index([sourceId, status])
+  @@index([leftAccountId, status])
+  @@index([rightAccountId, status])
+}
+
+// Relation-specific evidence is separate from shared-contact candidate evidence.
+// It contains only reviewable excerpts/locations and never a contact raw value.
+model AccountLinkEvidence {
+  id                   String   @id @default(uuid()) @db.Uuid
+  accountLinkId        String   @db.Uuid
+  sourceId             String   @db.Uuid
+  policyVersion        Int
+  policySnapshotId     String   @db.Uuid
+  referenceEvidenceId  String?  @db.Uuid
+  referenceEvidenceMissing Boolean @default(false)
+  sourceUrl            String   @db.VarChar(2048)
+  capturedAt           DateTime
+  fieldLocation        String   @db.VarChar(240)
+  summary              String   @db.VarChar(500)
+  leftAccountVerified  Boolean
+  rightAccountVerified Boolean
+  createdById          String   @db.Uuid
+  createdAt            DateTime @default(now())
+  accountLink          AccountLink @relation(fields: [accountLinkId], references: [id], onDelete: Cascade)
+  source               Source @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot       SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  referenceEvidence    Evidence? @relation("AccountLinkReferenceEvidence", fields: [referenceEvidenceId], references: [id], onDelete: SetNull)
+  createdBy            User @relation("AccountLinkEvidenceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  decisions            AccountLinkDecision[]
+
+  @@index([accountLinkId, createdAt])
+  @@index([sourceId, policyVersion])
+}
+
+// Immutable review rounds preserve the reason and evidence pointer even when
+// the current AccountLink row advances to a later state.
+model AccountLinkDecision {
+  id            String   @id @default(uuid()) @db.Uuid
+  accountLinkId String   @db.Uuid
+  round         Int
+  fromStatus    AccountLinkStatus
+  toStatus      AccountLinkStatus
+  version       Int
+  reason        String   @db.VarChar(500)
+  evidenceId    String?  @db.Uuid
+  actorId       String   @db.Uuid
+  createdAt     DateTime @default(now())
+  accountLink   AccountLink @relation(fields: [accountLinkId], references: [id], onDelete: Cascade)
+  evidence      AccountLinkEvidence? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  actor         User @relation("AccountLinkDecisionActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([accountLinkId, round])
+  @@index([accountLinkId, createdAt])
+}
+
+model ReviewDecision {
+  id                  String        @id @default(uuid()) @db.Uuid
+  contactId           String        @db.Uuid
+  reviewerId          String        @db.Uuid
+  status              ContactStatus
+  reason              String        @db.VarChar(500)
+  ownershipConfirmed  Boolean
+  businessConfirmed   Boolean
+  version             Int
+  createdAt           DateTime      @default(now())
+  contact             ContactPoint  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  reviewer            User          @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([contactId, version])
+}
+
+// Deliberately no arbitrary JSON, contact values, evidence text or free-text reasons.
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String   @db.Uuid
+  action      String   @db.VarChar(50)
+  targetId    String   @db.Uuid
+  createdAt   DateTime @default(now())
+  actor       User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt])
+}
+
+// A suppression stores only a keyed fingerprint, never the rejected contact value.
+// It is intentionally expiring and survives deletion of the original contact/account.
+model ContactSuppression {
+  id             String        @id @default(uuid()) @db.Uuid
+  fingerprint    String        @unique @db.VarChar(64)
+  contactType    ContactType?
+  accountId      String?       @db.Uuid
+  contactId      String?       @db.Uuid
+  reasonCode     String        @db.VarChar(80)
+  basis          String        @db.VarChar(500)
+  expiresAt      DateTime
+  fingerprintVersion Int       @default(2)
+  fingerprintKeyId String       @default("default-v2") @db.VarChar(80)
+  scope           String       @default("CONTACT_VALUE_GLOBAL") @db.VarChar(80)
+  createdById    String        @db.Uuid
+  createdAt      DateTime      @default(now())
+  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contact        ContactPoint? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  createdBy      User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt])
+  @@index([accountId, expiresAt])
+}
+
+model ExportJob {
+  id               String         @id @default(uuid()) @db.Uuid
+  createdById      String         @db.Uuid
+  tokenHash        String         @unique @db.VarChar(64)
+  encryptedPayload String         @db.Text
+  accountIds       String[]       @db.Uuid
+  fieldSet         String[]       @db.Text
+  filterSummary    String         @db.VarChar(1000)
+  rowCount         Int
+  excludedCount    Int
+  status           ExportJobStatus @default(READY)
+  expiresAt        DateTime
+  downloadedAt     DateTime?
+  createdAt        DateTime       @default(now())
+  createdBy        User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  manifestEntries  ExportJobManifest[]
+  payloadDigest    String         @default("") @db.VarChar(64)
+  excludedReasonCounts String      @default("{}") @db.Text
+
+  @@index([createdById, createdAt])
+  @@index([expiresAt, status])
+}
+
+model DeletionRequest {
+  id            String                @id @default(uuid()) @db.Uuid
+  targetHash    String                @db.VarChar(64)
+  targetType    String                @db.VarChar(30)
+  accountId     String?               @db.Uuid
+  contactId     String?               @db.Uuid
+  reason        String                @db.VarChar(500)
+  status        DeletionRequestStatus  @default(COMPLETED)
+  requestedById String                @db.Uuid
+  completedById String                @db.Uuid
+  requestedAt   DateTime              @default(now())
+  completedAt   DateTime              @default(now())
+  identityFingerprint String?         @db.VarChar(64)
+  identityNativeFingerprint String?   @db.VarChar(64)
+  identityProfileFingerprint String?  @db.VarChar(64)
+  identityType  String?              @db.VarChar(40)
+  identityVersion Int                 @default(1)
+  identityKeyId String               @default("legacy") @db.VarChar(80)
+  scope         String               @default("LEGACY_UNKNOWN") @db.VarChar(80)
+  identityExpiresAt DateTime?
+  account       Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contact       ContactPoint?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  requestedBy   User                  @relation("DeletionRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  completedBy   User                  @relation("DeletionCompleter", fields: [completedById], references: [id], onDelete: Restrict)
+
+  @@index([targetHash, completedAt])
+  @@index([accountId, completedAt])
+  @@index([contactId, completedAt])
+  @@index([identityFingerprint, completedAt])
+}
+
+model ExportJobManifest {
+  id               String   @id @default(uuid()) @db.Uuid
+  exportJobId      String   @db.Uuid
+  rowNumber        Int
+  accountId        String   @db.Uuid
+  contactId        String?  @db.Uuid
+  contactVersion   Int?
+  evidenceId       String?  @db.Uuid
+  sourceId         String   @db.Uuid
+  policySnapshotId String?  @db.Uuid
+  policyVersion    Int
+  fieldSources     String   @db.Text
+  createdAt        DateTime @default(now())
+  exportJob        ExportJob @relation(fields: [exportJobId], references: [id], onDelete: Cascade)
+  account          Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact          ContactPoint? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  evidence         Evidence? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  source           Source @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot   SourcePolicySnapshot? @relation(fields: [policySnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([exportJobId, rowNumber])
+  @@index([accountId])
+  @@index([contactId])
+  @@index([sourceId, policyVersion])
 }

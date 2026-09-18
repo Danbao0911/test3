@@ -5,6 +5,7 @@ import type { PrismaClient, Source } from "../generated/prisma/client";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "./account-normalizer";
 import { accountInputSchema, type AccountInput, validationMessage } from "./validation";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
+import { accountIdentityLockKeys, deletionRuleIsSupported, deletionRuleMatchesAccount } from "./identity-rules";
 
 export const IMPORT_FORMAT_VERSION = "v1";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -122,7 +123,7 @@ export function sourceBlockMessage(source: Pick<Source, "status" | "allowImport"
 export type DbClient = Prisma.TransactionClient;
 
 export class SourceNotAllowedError extends Error {
-  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED", message: string) {
+  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED" | "IDENTITY_DELETION_BLOCKED" | "IDENTITY_DELETION_RULE_UNAVAILABLE", message: string) {
     super(message);
     this.name = "SourceNotAllowedError";
   }
@@ -177,17 +178,22 @@ function sourceForWrite(source: Source | null) {
   return source;
 }
 
-function accountLockKeys(input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
-  return [
-    `test3:account:${input.platform}:url:${normalizedProfileUrl}`,
-    ...(input.nativeId ? [`test3:account:${input.platform}:native:${input.nativeId}`] : []),
-  ];
-}
-
 async function findExistingAccount(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
   const byNativeId = input.nativeId ? await tx.account.findUnique({ where: { platform_nativeId: { platform: input.platform, nativeId: input.nativeId } } }) : null;
   const byUrl = await tx.account.findUnique({ where: { platform_normalizedProfileUrl: { platform: input.platform, normalizedProfileUrl } } });
   return { byNativeId, byUrl };
+}
+
+async function identityDeletionBlocked(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
+  const rules = await tx.deletionRequest.findMany({
+    where: { scope: { in: ["ACCOUNT_REIMPORT_BLOCK", "LEGACY_UNKNOWN"] }, targetType: "ACCOUNT", OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: new Date() } }] },
+    select: { targetType: true, scope: true, identityType: true, identityVersion: true, identityKeyId: true, identityNativeFingerprint: true, identityProfileFingerprint: true },
+  });
+  for (const rule of rules) {
+    if (!deletionRuleIsSupported(rule)) throw new SourceNotAllowedError("IDENTITY_DELETION_RULE_UNAVAILABLE", "存在无法用当前受信密钥或算法核验的身份删除规则，已阻止录入");
+    if (deletionRuleMatchesAccount({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }, rule)) return true;
+  }
+  return false;
 }
 
 export async function createAccountWithRules(
@@ -201,7 +207,8 @@ export async function createAccountWithRules(
     try {
       return await client.$transaction(async (tx) => {
         const source = sourceForWrite(await lockSource(tx, input.sourceId));
-        await lockKeys(tx, accountLockKeys(input, normalizedProfileUrl));
+        await lockKeys(tx, accountIdentityLockKeys({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }));
+        if (await identityDeletionBlocked(tx, input, normalizedProfileUrl)) throw new SourceNotAllowedError("IDENTITY_DELETION_BLOCKED", "该平台身份处于删除后的重新录入阻止期");
         const { byNativeId, byUrl } = await findExistingAccount(tx, input, normalizedProfileUrl);
         if (byNativeId && byUrl && byNativeId.id !== byUrl.id) return { kind: "conflict" };
         const existing = byNativeId ?? byUrl;
@@ -220,6 +227,7 @@ export async function createAccountWithRules(
             sourceUrl: normalizedSourceUrl,
             capturedAt: new Date(),
             isDemo: source.type === "DEMO" && currentRuntimeMode() !== "production",
+            followUp: { create: {} },
           },
         });
         return { kind: "created", account };
@@ -255,7 +263,7 @@ export async function executeImport(
         }
         const source = sourceForWrite(await lockSource(tx, options.sourceId));
         const validRows = options.preparedRows.filter((row) => row.input && row.normalizedProfileUrl && row.normalizedSourceUrl);
-        await lockKeys(tx, validRows.flatMap((row) => accountLockKeys(row.input!, row.normalizedProfileUrl!)));
+        await lockKeys(tx, validRows.flatMap((row) => accountIdentityLockKeys({ platform: row.input!.platform, nativeId: row.input!.nativeId, normalizedProfileUrl: row.normalizedProfileUrl! })));
         const createdBatch = await tx.importBatch.create({
           data: { createdById: options.userId, sourceId: options.sourceId, idempotencyKey: options.idempotencyKey, payloadHash: options.payloadHash, totalRows: options.preparedRows.length },
         });
@@ -270,6 +278,11 @@ export async function executeImport(
             continue;
           }
           const { byNativeId, byUrl } = await findExistingAccount(tx, row.input, row.normalizedProfileUrl);
+          if (await identityDeletionBlocked(tx, row.input, row.normalizedProfileUrl)) {
+            invalidCount += 1;
+            await tx.importRowResult.create({ data: { batchId: createdBatch.id, rowNumber: row.rowNumber, status: "INVALID", errorCode: "IDENTITY_DELETION_BLOCKED", errorMessage: "该平台身份处于删除后的重新录入阻止期" } });
+            continue;
+          }
           if (byNativeId && byUrl && byNativeId.id !== byUrl.id) {
             invalidCount += 1;
             await tx.importRowResult.create({ data: { batchId: createdBatch.id, rowNumber: row.rowNumber, status: "INVALID", errorCode: "IDENTITY_CONFLICT", errorMessage: "平台身份 ID 和主页链接分别命中不同账号" } });
@@ -295,6 +308,7 @@ export async function executeImport(
               sourceUrl: row.normalizedSourceUrl,
               capturedAt: new Date(),
               isDemo: source.type === "DEMO" && currentRuntimeMode() !== "production",
+              followUp: { create: {} },
             },
           });
           createdCount += 1;

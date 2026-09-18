@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { normalizeProfileUrl, normalizeSourceUrl } from "../../src/lib/account-normalizer";
+import { normalizeContactTargetUrl, normalizeProfileUrl, normalizeSourceUrl } from "../../src/lib/account-normalizer";
 
 describe("normalizeProfileUrl", () => {
   beforeEach(() => { process.env.APP_MODE = "demo"; });
@@ -10,6 +10,7 @@ describe("normalizeProfileUrl", () => {
   });
 
   it("rejects non-HTTPS and non-profile URLs", () => {
+    process.env.APP_MODE = "production";
     expect(() => normalizeProfileUrl("YOUTUBE", "http://example.com/demo/youtube/001")).toThrow("只接受 HTTPS");
     expect(() => normalizeProfileUrl("X", "https://x.com/search?q=wealth")).toThrow("账号主页");
     expect(normalizeProfileUrl("YOUTUBE", "https://youtube.com/@livelyfinance")).toBe("https://youtube.com/@livelyfinance");
@@ -19,6 +20,16 @@ describe("normalizeProfileUrl", () => {
     expect(() => normalizeProfileUrl("X", "https://127.0.0.1/user")).toThrow("本机或 IP");
     expect(() => normalizeProfileUrl("X", "https://[::1]/user")).toThrow("本机或 IP");
     expect(() => normalizeProfileUrl("X", "https://user:pass@x.com/livelyfinance")).toThrow("用户名或密码");
+  });
+
+  it("cannot disguise real-platform profiles or evidence as synthetic data", () => {
+    for (const mode of ["demo", "test"]) {
+      process.env.APP_MODE = mode;
+      expect(() => normalizeProfileUrl("YOUTUBE", "https://youtube.com/@fictional")).toThrow("虚构主页");
+      expect(() => normalizeSourceUrl("https://youtube.com/@fictional")).toThrow("example.com/net/org");
+    }
+    process.env.APP_MODE = "production";
+    expect(() => normalizeProfileUrl("YOUTUBE", "https://example.com/demo/youtube/001")).toThrow("允许的主页域名");
   });
 
   it("does not request remote URLs", () => {
@@ -35,5 +46,11 @@ describe("normalizeSourceUrl", () => {
   it("rejects local and credential-bearing URLs", () => {
     expect(() => normalizeSourceUrl("https://localhost/source")).toThrow("本机");
     expect(() => normalizeSourceUrl("https://user:pass@example.com/source")).toThrow("用户名或密码");
+  });
+  it("keeps evidence fragments while account identities still drop profile fragments", () => {
+    expect(normalizeSourceUrl("https://example.com/about#business-contact")).toBe("https://example.com/about#business-contact");
+    expect(normalizeContactTargetUrl("https://example.com/book;service=trust")).toBe("https://example.com/book;service=trust");
+    expect(normalizeContactTargetUrl("https://example.com/#/consultation")).not.toBe(normalizeContactTargetUrl("https://example.com/#/board"));
+    expect(normalizeProfileUrl("YOUTUBE", "https://example.com/demo/youtube/001#profile")).toBe("https://example.com/demo/youtube/001");
   });
 });
