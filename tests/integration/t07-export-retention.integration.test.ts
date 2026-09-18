@@ -226,6 +226,31 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect((await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["CONTACT_VALUE"], accountIds: [secondId] }) })).response.status).toBe(422);
   }, 60_000);
 
+  it("LATEST-R04 直接删除账号或联系人也同步全局抑制同值副本", async () => {
+    const first = await createFixture("LATEST 直接删除联系人 A");
+    const secondAccount = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: `latest-delete-copy-${randomUUID()}`, displayName: "LATEST 直接删除联系人 B", profileUrl: `https://example.com/demo/delete-copy/${randomUUID()}`, organization: "LATEST 虚构机构", serviceTags: ["财富规划"], region: "上海", sourceId: first.sourceId, sourceUrl: "https://example.com/demo/source/delete-copy" }) });
+    expect(secondAccount.response.status).toBe(201);
+    const secondId = secondAccount.data.item!.id as string; createdAccountIds.push(secondId);
+    expect((await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: secondId, sourceId: first.sourceId, sourceUrl: "https://example.com/demo/delete-copy-evidence", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "LATEST 同值副本", context: "ACCOUNT_PROFILE", text: `商务邮箱：${first.contactValue}` }) })).response.status).toBe(200);
+    const secondContactId = (await request("reviewer", `/api/contacts?accountId=${secondId}`)).data.items![0].id as string;
+    expect((await request("reviewer", `/api/contacts/${secondContactId}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "LATEST 同值副本人工核对" }) })).response.status).toBe(200);
+    const deletedContact = await request("admin", "/api/deletion-requests", { method: "POST", ...jsonBody({ contactId: first.contactId, reason: "LATEST 直接删除 A 联系", confirm: true }) });
+    expect(deletedContact.response.status).toBe(201);
+    expect(await prisma.contactPoint.findUnique({ where: { id: secondContactId }, select: { status: true, suppressed: true } })).toMatchObject({ status: "INVALID", suppressed: true });
+    expect((await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["CONTACT_VALUE"], accountIds: [secondId] }) })).response.status).toBe(422);
+
+    const accountA = await createFixture("LATEST 直接删除账号 A");
+    const accountBResponse = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: `latest-delete-account-copy-${randomUUID()}`, displayName: "LATEST 直接删除账号 B", profileUrl: `https://example.com/demo/delete-account-copy/${randomUUID()}`, organization: "LATEST 虚构机构", serviceTags: ["财富规划"], region: "上海", sourceId: accountA.sourceId, sourceUrl: "https://example.com/demo/source/delete-account-copy" }) });
+    expect(accountBResponse.response.status).toBe(201);
+    const accountB = accountBResponse.data.item!.id as string; createdAccountIds.push(accountB);
+    await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: accountB, sourceId: accountA.sourceId, sourceUrl: "https://example.com/demo/delete-account-copy-evidence", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "LATEST 同值账号副本", context: "ACCOUNT_PROFILE", text: `商务邮箱：${accountA.contactValue}` }) });
+    const accountBContact = (await request("reviewer", `/api/contacts?accountId=${accountB}`)).data.items![0].id as string;
+    await request("reviewer", `/api/contacts/${accountBContact}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "LATEST 同值账号副本人工核对" }) });
+    const deletedAccount = await request("admin", "/api/deletion-requests", { method: "POST", ...jsonBody({ accountId: accountA.accountId, reason: "LATEST 直接删除 A 账号", confirm: true }) });
+    expect(deletedAccount.response.status).toBe(201);
+    expect(await prisma.contactPoint.findUnique({ where: { id: accountBContact }, select: { status: true, suppressed: true } })).toMatchObject({ status: "INVALID", suppressed: true });
+  }, 90_000);
+
   it("T07R1-R03 联系到期会清理证据和未到期导出载荷", async () => {
     const fixture = await createFixture("T07 联系到期清理");
     const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME", "CONTACT_VALUE"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });

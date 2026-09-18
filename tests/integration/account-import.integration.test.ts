@@ -287,6 +287,29 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect(conflict.response.status).toBe(409); expect(conflict.data.error).toBe("IDENTITY_CONFLICT");
   });
 
+  it("LATEST-R01 删除重录按独立身份规则阻止单条、漏填 ID 和 CSV", async () => {
+    const deleted = accountBody(accountSourceId, `deleted-identity-${randomUUID()}`, `deleted-native-${randomUUID()}`);
+    const created = await request("/api/accounts", { method: "POST", ...jsonBody(deleted) });
+    expect(created.response.status).toBe(201);
+    const deletedId = created.data.item.id as string;
+    const removed = await request("/api/deletion-requests", { method: "POST", ...jsonBody({ accountId: deletedId, reason: "LATEST 身份规则隔离验证", confirm: true }) });
+    expect(removed.response.status).toBe(201);
+
+    const sameNative = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, profileUrl: `https://example.com/demo/x/other-${randomUUID()}` }) });
+    expect(sameNative.response.status).toBe(409); expect(sameNative.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const sameProfileWithoutNative = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, nativeId: null }) });
+    expect(sameProfileWithoutNative.response.status).toBe(409); expect(sameProfileWithoutNative.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const sameNativeDifferentLegalProfile = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, profileUrl: `https://example.com/demo/x/legal-${randomUUID()}` }) });
+    expect(sameNativeDifferentLegalProfile.response.status).toBe(409); expect(sameNativeDifferentLegalProfile.data.error).toBe("IDENTITY_DELETION_BLOCKED");
+    const differentIdentity = await request("/api/accounts", { method: "POST", ...jsonBody({ ...deleted, nativeId: `different-${randomUUID()}`, profileUrl: `https://example.com/demo/x/different-${randomUUID()}`, displayName: deleted.displayName }) });
+    expect(differentIdentity.response.status).toBe(201);
+
+    const csv = Buffer.from(`platform,nativeId,displayName,profileUrl,organization,serviceTags,region,sourceUrl\nX,${deleted.nativeId},CSV blocked,https://example.com/demo/x/csv-${randomUUID()},机构,财富规划,上海,https://example.com/demo/source/csv-${randomUUID()}\n`);
+    const imported = await request("/api/imports", { method: "POST", headers: { "Idempotency-Key": `latest-identity-${randomUUID()}` }, body: csvForm(accountSourceId, csv) });
+    expect(imported.response.status).toBe(201); expect(imported.data.item).toMatchObject({ createdCount: 0, invalidCount: 1 });
+    createdBatchIds.push(imported.data.item.id as string);
+  });
+
   it("T07 首次 90 行导入得到 60 新增、20 重复、10 失败", async () => {
     primarySourceId = await createSource(`R1 import ${randomUUID()}`);
     const result = await request("/api/imports", { method: "POST", headers: { "Idempotency-Key": `r1-first-${randomUUID()}` }, body: csvForm(primarySourceId) });
@@ -613,5 +636,18 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     await prisma.session.updateMany({ where: { userId }, data: { expiresAt: new Date(0) } });
     const expired = await request("/api/accounts");
     expect(expired.response.status).toBe(401);
+  });
+
+  it("LATEST-R01 登录并发准入在已有 9 次失败时只允许一个密码校验，并可在窗口后恢复", async () => {
+    const keyHash = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
+    await prisma.loginThrottle.upsert({ where: { keyHash }, update: { attemptCount: 9, inFlightCount: 0, windowStartedAt: new Date() }, create: { keyHash, attemptCount: 9, inFlightCount: 0, windowStartedAt: new Date() } });
+    const attempts = await Promise.all(Array.from({ length: 12 }, () => request("/api/auth/login", { method: "POST", ...jsonBody({ email: adminEmail, password: "wrong-concurrent-password" }) }, false)));
+    expect(attempts.filter((result) => result.response.status === 401)).toHaveLength(1);
+    expect(attempts.filter((result) => result.response.status === 429)).toHaveLength(11);
+    expect(await prisma.loginThrottle.findUnique({ where: { keyHash }, select: { attemptCount: true, inFlightCount: true } })).toMatchObject({ attemptCount: 10, inFlightCount: 0 });
+    await prisma.loginThrottle.update({ where: { keyHash }, data: { windowStartedAt: new Date(Date.now() - 6 * 60 * 1000), attemptCount: 10, inFlightCount: 0 } });
+    const recovered = await request("/api/auth/login", { method: "POST", ...jsonBody({ email: adminEmail, password }) }, false);
+    expect(recovered.response.status).toBe(200);
+    expect(await prisma.loginThrottle.findUnique({ where: { keyHash }, select: { attemptCount: true, inFlightCount: true } })).toMatchObject({ attemptCount: 0, inFlightCount: 0 });
   });
 });

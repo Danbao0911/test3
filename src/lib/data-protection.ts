@@ -14,6 +14,7 @@ function secretBytes(name: "SUPPRESSION_HMAC_KEY" | "EXPORT_ENCRYPTION_KEY") {
 
 export const SUPPRESSION_FINGERPRINT_VERSION = 2;
 export const SUPPRESSION_FINGERPRINT_KEY_ID = process.env.SUPPRESSION_HMAC_KEY_ID ?? "default-v2";
+export const ACCOUNT_IDENTITY_FINGERPRINT_VERSION = 2;
 
 function normalizeSuppressionValue(type: string, value: string) {
   const normalizedType = type.trim().toUpperCase();
@@ -41,10 +42,39 @@ export function suppressionFingerprintCandidates(type: string, normalizedValue: 
   return [...new Set([suppressionFingerprint(type, normalizedValue), legacySuppressionFingerprint(type, normalizedValue)])];
 }
 
-export function stableIdentityFingerprint(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }) {
+function identityFingerprint(prefix: string, platform: string, value: string) {
+  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY"))
+    .update(`${prefix}\0${platform.trim().toUpperCase()}\0${value.trim()}`)
+    .digest("hex");
+}
+
+export function stableNativeIdFingerprint(input: { platform: string; nativeId?: string | null }) {
+  const nativeId = input.nativeId?.trim();
+  return nativeId ? identityFingerprint("ACCOUNT_NATIVE_ID_V2", input.platform, nativeId) : null;
+}
+
+export function stableProfileFingerprint(input: { platform: string; normalizedProfileUrl: string }) {
+  return identityFingerprint("ACCOUNT_PROFILE_URL_V2", input.platform, input.normalizedProfileUrl);
+}
+
+export function stableIdentityFingerprints(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }) {
+  return {
+    nativeId: stableNativeIdFingerprint(input),
+    profileUrl: stableProfileFingerprint(input),
+  };
+}
+
+/**
+ * Kept only for callers that need to identify the pre-LATEST-REVIEW composite
+ * format. New deletion rules must use stableIdentityFingerprints instead.
+ */
+export function legacyStableIdentityFingerprint(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }) {
   const identity = `${input.platform.trim().toUpperCase()}\0${input.nativeId?.trim() ?? ""}\0${input.normalizedProfileUrl.trim()}`;
   return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY")).update(`ACCOUNT_IDENTITY_V1\0${identity}`).digest("hex");
 }
+
+/** @deprecated Composite digests are legacy-only and must not back new rules. */
+export const stableIdentityFingerprint = legacyStableIdentityFingerprint;
 
 export function payloadDigest(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");

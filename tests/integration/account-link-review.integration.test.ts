@@ -48,8 +48,8 @@ function jsonBody(value: unknown) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) };
 }
 
-function relationEvidence(sourceId: string, leftAccountId: string, rightAccountId: string) {
-  return [{ sourceId, sourceUrl: "https://example.com/demo/evidence/t06-link-review", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "公开主体资料关联说明", summary: "人工分别核对两侧账号主体资料后确认关联", leftAccountId, rightAccountId, leftAccountVerified: true, rightAccountVerified: true }];
+function relationEvidence(sourceId: string, leftAccountId: string, rightAccountId: string, referenceEvidenceId?: string) {
+  return [{ sourceId, ...(referenceEvidenceId ? { referenceEvidenceId } : {}), sourceUrl: "https://example.com/demo/evidence/t06-link-review", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "公开主体资料关联说明", summary: "人工分别核对两侧账号主体资料后确认关联", leftAccountId, rightAccountId, leftAccountVerified: true, rightAccountVerified: true }];
 }
 
 async function waitForHealth() {
@@ -234,6 +234,30 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const unknownField = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ contactId: "00000000-0000-4000-8000-000000000001" }) });
     expect(unknownField.response.status).toBe(422);
   }, 30_000);
+
+  it("LATEST-R05 MANUAL 关系读取沿用引用联系的有效性，而不是只看 Evidence.id", async () => {
+    const sourceId = await createSource();
+    const left = await createAccount(sourceId, "reference-left");
+    const right = await createAccount(sourceId, "reference-right");
+    const contactId = await createReviewedContact(left, sourceId, `latest-reference-${randomUUID()}@example.com`);
+    const contact = await prisma.contactPoint.findUniqueOrThrow({ where: { id: contactId }, select: { evidenceId: true } });
+    const created = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
+    expect(created.response.status).toBe(201);
+    const linkId = created.data.item!.id as string;
+    const confirmed = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "引用联系和关系资料均经人工核对", evidence: relationEvidence(sourceId, left, right, contact.evidenceId) }) });
+    expect(confirmed.response.status, JSON.stringify(confirmed.data)).toBe(200);
+    await prisma.contactPoint.update({ where: { id: contactId }, data: { status: "INVALID", ownershipConfirmed: false, businessConfirmed: false } });
+    expect((await request("reviewerA", `/api/account-links/${linkId}`)).data.item).toMatchObject({ usable: false, unusableReason: "LINK_DEPENDENCY_STALE" });
+    await prisma.contactPoint.update({ where: { id: contactId }, data: { status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, expiresAt: new Date(Date.now() - 1_000) } });
+    expect((await request("reviewerA", `/api/account-links/${linkId}`)).data.item).toMatchObject({ usable: false, unusableReason: "LINK_DEPENDENCY_STALE" });
+    await prisma.contactPoint.update({ where: { id: contactId }, data: { expiresAt: new Date(Date.now() + 60_000), suppressed: false } });
+    const suppressed = await request("reviewerA", `/api/contacts/${contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "LATEST 引用失效验证" }) });
+    expect(suppressed.response.status).toBe(200);
+    expect((await request("reviewerA", `/api/account-links/${linkId}`)).data.item).toMatchObject({ usable: false, unusableReason: "LINK_DEPENDENCY_STALE" });
+    const deleted = await request("admin", "/api/deletion-requests", { method: "POST", ...jsonBody({ contactId, reason: "LATEST 删除引用证据", confirm: true }) });
+    expect(deleted.response.status).toBe(201);
+    expect((await request("reviewerA", `/api/account-links/${linkId}`)).data.item).toMatchObject({ usable: false, unusableReason: "LINK_EVIDENCE_REFERENCE_MISSING" });
+  }, 45_000);
 
   it("来源关联许可、VIEWER 权限和审核理由隔离有效", async () => {
     const sourceId = await createSource();

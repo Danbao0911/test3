@@ -25,15 +25,23 @@ RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
 
 ## 恢复规则重放
 
-账号删除规则保存限定范围、算法版本、期限和 HMAC key id 的稳定平台身份指纹。重放时，旧 UUID 只作为历史审计，不能自行识别新 UUID；只有仍在期限内且具有版本化稳定身份指纹的规则才匹配新记录。抑制规则通过兼容的 HMAC 候选匹配恢复库中的联系人，不保存原始联系人作为黑名单。
+账号删除规则分别保存“平台 + 稳定 ID”和“平台 + 规范主页”的独立指纹、限定范围、算法版本、期限和 HMAC key id。任一仍有效的规则命中都会阻止恢复；不要求两个身份同时出现，也不使用昵称、头像或跨平台同名推断。单条录入、CSV 导入和恢复重放共用同一身份规则服务。旧复合指纹无法拆回原始身份，追加迁移将其标记为 `LEGACY_UNKNOWN`，不伪造新指纹。
+
+重放对账号和联系人使用独立的稳定 ID 游标。每次返回 `scanned`、`matched`、`deleted`、`hasMore` 和 `next.accountCursor`/`next.contactCursor`，并额外返回各范围的 `accountDone`/`contactDone`，因此首批零命中不会提前结束，也不会在另一范围仍有数据时重扫已完成范围。`--max-batches` 到达上限时输出 `incomplete: true`、续跑游标并以退出码 2 结束；只有两个范围都完成才输出 `complete: true`。
+
+重放前按算法版本和 key id 选择规则：当前 v2 规则和历史明确登记的 `legacy-v1` 抑制指纹可兼容匹配；未知版本或缺失 key id 只报告 `blockedRules`，不静默放行。恢复副本必须先导入备份时点之后产生的删除/抑制规则；旧 UUID 只作为历史审计，不能自行识别新 UUID；规则不会保存原始联系人作为黑名单。
 
 ```bash
 pnpm retention:replay -- --dry-run
 RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
-  pnpm retention:replay
+  pnpm retention:replay -- --batch-size 100 --max-batches 100
 ```
 
-重放是幂等的：已经删除的记录不会再次产生变化；`LEGACY_UNKNOWN` 规则只计数并报告，不猜测恢复对象。
+重放是幂等的：已经删除的记录不会再次产生变化；`LEGACY_UNKNOWN` 规则只计数并报告，不猜测恢复对象。当前没有部署生产恢复调度，CLI 仅允许隔离 `demo`/`test` 数据库运行。
+
+## 跨服务锁序
+
+下载、导出创建、手动删除、联系人到期清理、抑制、提取和审核遵循同一资源顺序：`Source → suppression/identity fingerprint → Account → ContactPoint → Evidence → AccountLink pair → ExportJob`。事务先读取候选集合，再按稳定排序加锁并重新读取；可重试冲突只允许有限整事务重试，失败事务不会继续查询。该锁序不保证外部已经下载的 CSV 可被回收。
 
 ## 日志和 token
 

@@ -5,7 +5,7 @@ import type { PrismaClient, Source } from "../generated/prisma/client";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "./account-normalizer";
 import { accountInputSchema, type AccountInput, validationMessage } from "./validation";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
-import { stableIdentityFingerprint } from "./data-protection";
+import { activeDeletionIdentityWhere } from "./identity-rules";
 
 export const IMPORT_FORMAT_VERSION = "v1";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -192,8 +192,7 @@ async function findExistingAccount(tx: DbClient, input: Pick<AccountInput, "plat
 }
 
 async function identityDeletionBlocked(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
-  const fingerprint = stableIdentityFingerprint({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl });
-  return Boolean(await tx.deletionRequest.findFirst({ where: { identityFingerprint: fingerprint, scope: "ACCOUNT_REIMPORT_BLOCK", OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: new Date() } }] }, select: { id: true } }));
+  return Boolean(await tx.deletionRequest.findFirst({ where: activeDeletionIdentityWhere({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }), select: { id: true } }));
 }
 
 export async function createAccountWithRules(

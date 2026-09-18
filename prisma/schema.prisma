@@ -122,6 +122,7 @@ model LoginThrottle {
   id              String   @id @default(uuid()) @db.Uuid
   keyHash         String   @unique @db.VarChar(64)
   attemptCount    Int      @default(0)
+  inFlightCount   Int      @default(0)
   windowStartedAt DateTime
   updatedAt       DateTime @updatedAt
 
@@ -509,6 +510,8 @@ model DeletionRequest {
   requestedAt   DateTime              @default(now())
   completedAt   DateTime              @default(now())
   identityFingerprint String?         @db.VarChar(64)
+  identityNativeFingerprint String?   @db.VarChar(64)
+  identityProfileFingerprint String?  @db.VarChar(64)
   identityType  String?              @db.VarChar(40)
   identityVersion Int                 @default(1)
   identityKeyId String               @default("legacy") @db.VarChar(80)

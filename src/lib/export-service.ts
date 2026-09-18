@@ -7,6 +7,7 @@ import {
 } from "./data-protection";
 import type { ExportInput } from "./validation";
 import { clearContactDependencies } from "./retention-dependencies";
+import { lockContactValueKeys, lockRows } from "./resource-locks";
 
 export class ExportError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 422) { super(message); }
@@ -136,9 +137,18 @@ async function exportJobStillAllowed(tx: Prisma.TransactionClient, job: { accoun
 export async function createExportJob(db: PrismaClient, userId: string, input: ExportInput) {
   const token = createDownloadToken(); const now = new Date();
   return db.$transaction(async (tx) => {
-    const sourceRows = await tx.account.findMany({ where: accountWhere(userId, input), select: { sourceId: true }, distinct: ["sourceId"] });
-    await lockIds(tx, "Source", sourceRows.map((row) => row.sourceId));
-    const accounts = await tx.account.findMany({ where: accountWhere(userId, input), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: MAX_EXPORT_ACCOUNTS + 1, include: {
+    let accounts = await tx.account.findMany({ where: accountWhere(userId, input), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: MAX_EXPORT_ACCOUNTS + 1, include: {
+      source: { include: { policySnapshots: { orderBy: { version: "desc" }, take: 1 } } }, followUp: { select: { status: true } }, favorites: { where: { userId }, select: { id: true }, take: 1 },
+      evidence: { include: { contact: true, source: { include: { policySnapshots: { orderBy: { version: "desc" }, take: 1 } } }, policySnapshot: true } },
+    } });
+    if (accounts.length > MAX_EXPORT_ACCOUNTS) throw new ExportError("EXPORT_TOO_LARGE", "导出范围过大，请缩小筛选范围");
+    const initialContacts = accounts.flatMap((account) => account.evidence.flatMap((evidence) => evidence.contact ? [evidence.contact] : []));
+    await lockIds(tx, "Source", accounts.flatMap((account) => [account.sourceId, ...account.evidence.map((evidence) => evidence.sourceId)]));
+    await lockContactValueKeys(tx, initialContacts);
+    await lockIds(tx, "Account", accounts.map((account) => account.id));
+    await lockIds(tx, "ContactPoint", initialContacts.map((contact) => contact.id));
+    await lockIds(tx, "Evidence", accounts.flatMap((account) => account.evidence.map((evidence) => evidence.id)));
+    accounts = await tx.account.findMany({ where: accountWhere(userId, input), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: MAX_EXPORT_ACCOUNTS + 1, include: {
       source: { include: { policySnapshots: { orderBy: { version: "desc" }, take: 1 } } }, followUp: { select: { status: true } }, favorites: { where: { userId }, select: { id: true }, take: 1 },
       evidence: { include: { contact: true, source: { include: { policySnapshots: { orderBy: { version: "desc" }, take: 1 } } }, policySnapshot: true } },
     } });
@@ -172,7 +182,16 @@ export async function createExportJob(db: PrismaClient, userId: string, input: E
 
 export async function downloadExport(db: PrismaClient, userId: string, jobId: string, token: string) {
   const decision = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT "id" FROM "ExportJob" WHERE "id" = ${jobId}::uuid FOR UPDATE`;
+    const preview = await tx.exportJob.findUnique({ where: { id: jobId }, include: { manifestEntries: { orderBy: { rowNumber: "asc" } } } });
+    if (!preview || preview.createdById !== userId) throw new ExportError("EXPORT_NOT_FOUND", "导出链接不存在", 404);
+    const manifestContactIds = preview.manifestEntries.flatMap((row) => row.contactId ? [row.contactId] : []);
+    const previewContacts = manifestContactIds.length ? await tx.contactPoint.findMany({ where: { id: { in: manifestContactIds } }, select: { type: true, normalizedValue: true } }) : [];
+    await lockIds(tx, "Source", preview.manifestEntries.map((row) => row.sourceId));
+    await lockContactValueKeys(tx, previewContacts);
+    await lockIds(tx, "Account", preview.manifestEntries.map((row) => row.accountId));
+    await lockIds(tx, "ContactPoint", manifestContactIds);
+    await lockIds(tx, "Evidence", preview.manifestEntries.flatMap((row) => row.evidenceId ? [row.evidenceId] : []));
+    await lockRows(tx, "ExportJob", [jobId]);
     const current = await tx.exportJob.findUnique({ where: { id: jobId }, include: { manifestEntries: { orderBy: { rowNumber: "asc" } } } });
     if (!current || current.createdById !== userId) throw new ExportError("EXPORT_NOT_FOUND", "导出链接不存在", 404);
     const invalidate = async (status: "EXPIRED" | "REVOKED", code: string, message: string) => {
@@ -205,7 +224,7 @@ export async function deleteExportArtifactsForAccounts(tx: Prisma.TransactionCli
   return (await tx.exportJob.deleteMany({ where: { accountIds: { hasSome: accountIds } } })).count;
 }
 
-export type RetentionCleanupOptions = { batchSize?: number; contactCursor?: string; exportCursor?: string; suppressionCursor?: string; dryRun?: boolean };
+export type RetentionCleanupOptions = { batchSize?: number; contactCursor?: string; exportCursor?: string; suppressionCursor?: string; contactDone?: boolean; exportDone?: boolean; suppressionDone?: boolean; dryRun?: boolean };
 
 export async function runRetentionCleanup(db: PrismaClient, actorId: string, now = new Date(), options: RetentionCleanupOptions = {}) {
   const batchSize = Math.min(Math.max(options.batchSize ?? 50, 1), 100);
@@ -218,16 +237,17 @@ export async function runRetentionCleanup(db: PrismaClient, actorId: string, now
     return { contacts, exports, suppressions, dryRun: true, next: null };
   }
   return db.$transaction(async (tx) => {
-    const expiredContacts = await tx.contactPoint.findMany({ where: { expiresAt: { lte: now }, ...(options.contactCursor ? { id: { gt: options.contactCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, include: { evidence: { select: { id: true, accountId: true } } } });
+    const expiredContacts = options.contactDone ? [] : await tx.contactPoint.findMany({ where: { expiresAt: { lte: now }, ...(options.contactCursor ? { id: { gt: options.contactCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, include: { evidence: { select: { id: true, accountId: true } } } });
     const contactIds = expiredContacts.map((contact) => contact.id); const accountIds = [...new Set(expiredContacts.map((contact) => contact.evidence.accountId))];
-    await lockIds(tx, "Account", accountIds); await lockIds(tx, "ContactPoint", contactIds);
+    await lockIds(tx, "Account", accountIds); await lockIds(tx, "ContactPoint", contactIds); await lockIds(tx, "Evidence", expiredContacts.map((contact) => contact.evidence.id));
     for (const contact of expiredContacts) await clearContactDependencies(tx, contact.id, contact.evidence.id, contact.evidence.accountId);
-    const expiredExports = await tx.exportJob.findMany({ where: { expiresAt: { lte: now }, ...(options.exportCursor ? { id: { gt: options.exportCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, select: { id: true } });
-    const expiredSuppressions = await tx.contactSuppression.findMany({ where: { expiresAt: { lte: now }, ...(options.suppressionCursor ? { id: { gt: options.suppressionCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, select: { id: true } });
+    const expiredExports = options.exportDone ? [] : await tx.exportJob.findMany({ where: { expiresAt: { lte: now }, ...(options.exportCursor ? { id: { gt: options.exportCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, select: { id: true } });
+    const expiredSuppressions = options.suppressionDone ? [] : await tx.contactSuppression.findMany({ where: { expiresAt: { lte: now }, ...(options.suppressionCursor ? { id: { gt: options.suppressionCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, select: { id: true } });
+    await lockRows(tx, "ExportJob", expiredExports.map((item) => item.id));
     if (expiredExports.length) await tx.exportJob.deleteMany({ where: { id: { in: expiredExports.map((item) => item.id) } } });
     if (expiredSuppressions.length) await tx.contactSuppression.deleteMany({ where: { id: { in: expiredSuppressions.map((item) => item.id) } } });
     await tx.auditEvent.create({ data: { actorId, action: "RETENTION_CLEANUP", targetId: actorId } });
-    return { contacts: expiredContacts.length, exports: expiredExports.length, suppressions: expiredSuppressions.length, dryRun: false, next: { contactCursor: expiredContacts.length === batchSize ? expiredContacts.at(-1)?.id ?? null : null, exportCursor: expiredExports.length === batchSize ? expiredExports.at(-1)?.id ?? null : null, suppressionCursor: expiredSuppressions.length === batchSize ? expiredSuppressions.at(-1)?.id ?? null : null } };
+    return { contacts: expiredContacts.length, exports: expiredExports.length, suppressions: expiredSuppressions.length, dryRun: false, next: { contactCursor: expiredContacts.length === batchSize ? expiredContacts.at(-1)?.id ?? null : null, contactDone: options.contactDone === true || expiredContacts.length < batchSize, exportCursor: expiredExports.length === batchSize ? expiredExports.at(-1)?.id ?? null : null, exportDone: options.exportDone === true || expiredExports.length < batchSize, suppressionCursor: expiredSuppressions.length === batchSize ? expiredSuppressions.at(-1)?.id ?? null : null, suppressionDone: options.suppressionDone === true || expiredSuppressions.length < batchSize } };
   });
 }
 

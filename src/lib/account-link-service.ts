@@ -3,6 +3,8 @@ import type { AccountLinkBasis, AccountLinkStatus, PrismaClient } from "../gener
 import { canMaintain, type Role } from "./permissions";
 import { normalizeSourceUrl } from "./account-normalizer";
 import { sourceTypeAllowed } from "./runtime-config";
+import { contactUsable } from "./contact-policy";
+import { suppressionFingerprintCandidates } from "./data-protection";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -170,12 +172,15 @@ async function persistRelationEvidence(tx: Prisma.TransactionClient, link: NonNu
     if (!state) throw new AccountLinkError("SOURCE_NOT_FOUND", "关系证据来源不存在", 404);
     assertSourceAllowed(state);
     if (!state.snapshot) throw new AccountLinkError("LINK_POLICY_STALE", "关系证据来源缺少当前策略快照", 409);
-    let reference: { id: string; sourceId: string; policyVersion: number; sourceUrl: string; accountId: string; contact: { status: string; suppressed: boolean; expiresAt: Date } | null } | null = null;
+    let referenceId: string | undefined;
+    let referenceSourceUrl: string | undefined;
     if (input.referenceEvidenceId) {
-      reference = await tx.evidence.findUnique({ where: { id: input.referenceEvidenceId }, select: { id: true, sourceId: true, policyVersion: true, sourceUrl: true, accountId: true, contact: { select: { status: true, suppressed: true, expiresAt: true } } } });
+      const reference = await tx.evidence.findUnique({ where: { id: input.referenceEvidenceId }, select: { id: true, sourceId: true, policyVersion: true, sourceUrl: true, accountId: true, contact: { select: { status: true, suppressed: true, expiresAt: true, ownershipConfirmed: true, businessConfirmed: true, reviewedAt: true, type: true, normalizedValue: true, evidence: { select: { policyVersion: true, source: { select: { status: true, allowExtract: true, allowEvidenceText: true, permissionNote: true, expiresAt: true, policyVersion: true } }, policySnapshot: { select: { isLegacy: true } } } } } } } });
       if (!reference) throw new AccountLinkError("LINK_EVIDENCE_REFERENCE_MISSING", "引用的关系证据不存在，不能确认", 409);
-      if (reference.contact && (reference.contact.suppressed || reference.contact.status !== "APPROVED" || reference.contact.expiresAt <= new Date())) throw new AccountLinkError("LINK_DEPENDENCY_STALE", "引用证据对应的联系项已失效或受抑制，不能确认关联", 409);
+      const suppressed = reference.contact ? await tx.contactSuppression.findFirst({ where: { fingerprint: { in: suppressionFingerprintCandidates(reference.contact.type, reference.contact.normalizedValue) }, expiresAt: { gt: new Date() } }, select: { id: true } }) : null;
+      if (!reference.contact || !contactUsable(reference.contact, new Date()) || suppressed) throw new AccountLinkError("LINK_DEPENDENCY_STALE", "引用证据对应的联系项已失效或受抑制，不能确认关联", 409);
       if (reference.sourceId !== state.source.id || reference.policyVersion !== state.source.policyVersion || ![leftId, rightId].includes(reference.accountId)) throw new AccountLinkError("LINK_EVIDENCE_REFERENCE_INVALID", "引用证据不属于当前账号对或当前来源策略", 422);
+      referenceId = reference.id; referenceSourceUrl = reference.sourceUrl;
     }
     const coverage = await Promise.all(accounts.map(async (account) => {
       if (account.sourceId === state.source.id) return true;
@@ -186,11 +191,11 @@ async function persistRelationEvidence(tx: Prisma.TransactionClient, link: NonNu
     let sourceUrl = input.sourceUrl?.trim();
     if (sourceUrl) {
       try { sourceUrl = normalizeSourceUrl(sourceUrl); } catch { throw new AccountLinkError("LINK_EVIDENCE_URL_INVALID", "关系证据地址必须是安全的 HTTPS 链接", 422); }
-    } else if (reference) sourceUrl = reference.sourceUrl;
+    } else if (referenceSourceUrl) sourceUrl = referenceSourceUrl;
     if (!sourceUrl) throw new AccountLinkError("LINK_EVIDENCE_REQUIRED", "关系证据必须包含来源地址或已有证据引用", 422);
     const capturedAt = new Date(input.capturedAt);
     if (!Number.isFinite(capturedAt.getTime()) || capturedAt > new Date()) throw new AccountLinkError("LINK_EVIDENCE_TIME_INVALID", "关系证据取得时间无效", 422);
-    await tx.accountLinkEvidence.create({ data: { accountLinkId: link.id, sourceId: state.source.id, policyVersion: state.source.policyVersion, policySnapshotId: state.snapshot.id, referenceEvidenceId: reference?.id, sourceUrl, capturedAt, fieldLocation: input.fieldLocation.trim(), summary: input.summary.trim(), leftAccountVerified: true, rightAccountVerified: true, createdById: actorId } });
+    await tx.accountLinkEvidence.create({ data: { accountLinkId: link.id, sourceId: state.source.id, policyVersion: state.source.policyVersion, policySnapshotId: state.snapshot.id, referenceEvidenceId: referenceId, sourceUrl, capturedAt, fieldLocation: input.fieldLocation.trim(), summary: input.summary.trim(), leftAccountVerified: true, rightAccountVerified: true, createdById: actorId } });
   }
 }
 
@@ -217,14 +222,23 @@ async function linkValidity(db: Db, linkId: string): Promise<AccountLinkValidity
   const states = await db.source.findMany({ where: { id: { in: sourceIds } }, select: { id: true, status: true, allowRelate: true, permissionNote: true, expiresAt: true, type: true, policyVersion: true } });
   const snapshots = await db.sourcePolicySnapshot.findMany({ where: { sourceId: { in: sourceIds } }, select: { id: true, sourceId: true, version: true, allowRelate: true, isLegacy: true } });
   const referenceIds = link.evidences.flatMap((evidence) => evidence.referenceEvidenceId ? [evidence.referenceEvidenceId] : []);
-  const references = referenceIds.length ? await db.evidence.findMany({ where: { id: { in: referenceIds } }, select: { id: true } }) : [];
+  const references = referenceIds.length ? await db.evidence.findMany({ where: { id: { in: referenceIds } }, select: { id: true, contact: { select: { status: true, suppressed: true, expiresAt: true, ownershipConfirmed: true, businessConfirmed: true, reviewedAt: true, type: true, normalizedValue: true, evidence: { select: { policyVersion: true, source: { select: { status: true, allowExtract: true, allowEvidenceText: true, permissionNote: true, expiresAt: true, policyVersion: true } }, policySnapshot: { select: { isLegacy: true } } } } } } } }) : [];
+  const referenceSuppressionFingerprints = references.flatMap((reference) => reference.contact ? suppressionFingerprintCandidates(reference.contact.type, reference.contact.normalizedValue) : []);
+  const referenceSuppressions = referenceSuppressionFingerprints.length ? await db.contactSuppression.findMany({ where: { fingerprint: { in: [...new Set(referenceSuppressionFingerprints)] }, expiresAt: { gt: new Date() } }, select: { fingerprint: true } }) : [];
+  const suppressedReferences = new Set(referenceSuppressions.map((item) => item.fingerprint));
+  const referenceMap = new Map(references.map((reference) => [reference.id, reference]));
   for (const evidence of link.evidences) {
     const source = states.find((item) => item.id === evidence.sourceId);
     const snapshot = snapshots.find((item) => item.sourceId === evidence.sourceId && item.version === source?.policyVersion) ?? null;
     if (!source || !canUseRelatingSource(source, snapshot)) return { usable: false, unusableReason: "LINK_POLICY_STALE" };
     const evidenceSnapshot = snapshots.find((item) => item.sourceId === evidence.sourceId && item.version === evidence.policyVersion);
     if (evidence.policyVersion !== source.policyVersion || !evidenceSnapshot || evidenceSnapshot.id !== evidence.policySnapshotId || evidenceSnapshot.isLegacy) return { usable: false, unusableReason: "LINK_POLICY_STALE" };
-    if (evidence.referenceEvidenceMissing || (evidence.referenceEvidenceId && !references.some((reference) => reference.id === evidence.referenceEvidenceId))) return { usable: false, unusableReason: "LINK_EVIDENCE_REFERENCE_MISSING" };
+    if (evidence.referenceEvidenceMissing) return { usable: false, unusableReason: "LINK_EVIDENCE_REFERENCE_MISSING" };
+    if (evidence.referenceEvidenceId) {
+      const reference = referenceMap.get(evidence.referenceEvidenceId);
+      const referenceSuppressed = reference?.contact ? suppressionFingerprintCandidates(reference.contact.type, reference.contact.normalizedValue).some((fingerprint) => suppressedReferences.has(fingerprint)) : false;
+      if (!reference?.contact || referenceSuppressed || !contactUsable(reference.contact, new Date())) return { usable: false, unusableReason: "LINK_DEPENDENCY_STALE" };
+    }
     if (!evidence.leftAccountVerified || !evidence.rightAccountVerified) return { usable: false, unusableReason: "LINK_EVIDENCE_INCOMPLETE" };
   }
   if (link.basis === "SHARED_CONTACT_CANDIDATE") {

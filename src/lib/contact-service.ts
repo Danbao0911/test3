@@ -5,7 +5,8 @@ import { extractContacts, isSyntheticContact } from "./contact-extractor";
 import { extractionAllowed, contactUsable } from "./contact-policy";
 import { canMaintain, type Role } from "./permissions";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
-import { suppressionFingerprint, suppressionFingerprintCandidates } from "./data-protection";
+import { suppressionFingerprintCandidates } from "./data-protection";
+import { lockContactValueKeys, lockRows } from "./resource-locks";
 import type { ExtractionInput, ReviewInput } from "./contact-validation";
 
 export class ContactError extends Error {
@@ -47,12 +48,11 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
     const candidates = extractContacts(input.text, input.context);
     if (candidates.length > 20) throw new ContactError("TOO_MANY_CANDIDATES", "每次最多 20 条候选，请拆分文本");
     if (candidates.some(c => !isSyntheticContact(c.type, c.normalizedValue))) throw new ContactError("SYNTHETIC_ONLY", "仅接受示例域邮箱/链接、demo_ 微信及 +1 202 555 01xx 虚构电话");
+    await lockContactValueKeys(tx, candidates.map((candidate) => ({ type: candidate.type, normalizedValue: candidate.normalizedValue })));
     let createdCount = 0;
     let suppressedCount = 0;
     const ids: string[] = [];
     for (const candidate of candidates) {
-      const candidateFingerprint = suppressionFingerprint(candidate.type, candidate.normalizedValue);
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:suppression:${candidateFingerprint}`}))::text AS locked`;
       const suppressed = await tx.contactSuppression.findMany({ where: { fingerprint: { in: suppressionFingerprintCandidates(candidate.type, candidate.normalizedValue) }, expiresAt: { gt: now } }, select: { expiresAt: true }, take: 1 });
       if (suppressed.length) { suppressedCount++; continue; }
       const dedupeKey = createHash("sha256").update(JSON.stringify([account.id, source.id, source.policyVersion, candidate.type, candidate.normalizedValue])).digest("hex");
@@ -77,7 +77,8 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
     const initial = await tx.contactPoint.findUnique({ where: { id: contactId }, include: { evidence: true } });
     if (!initial) throw new ContactError("NOT_FOUND", "联系项不存在", 404);
     const { source } = await lockSource(tx, initial.evidence.sourceId);
-    await tx.$queryRaw`SELECT "id" FROM "ContactPoint" WHERE "id" = ${contactId}::uuid FOR UPDATE`;
+    if (input.status === "APPROVED") await lockContactValueKeys(tx, [{ type: initial.type, normalizedValue: initial.normalizedValue }]);
+    await lockRows(tx, "ContactPoint", [contactId]);
     const current = await tx.contactPoint.findUniqueOrThrow({ where: { id: contactId }, include: { evidence: true } });
     if (current.version !== input.version) throw new ContactError("REVIEW_CONFLICT", "联系项已被其他操作更新，请刷新后再审核", 409);
     const now = new Date();
@@ -87,8 +88,7 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
       if (current.expiresAt <= now) throw new ContactError("CONTACT_EXPIRED", "联系证据已过期");
       if (current.status !== "PENDING") throw new ContactError("INVALID_TRANSITION", "仅待审核项可批准；已驳回或失效项不能直接恢复", 409);
       if (!input.ownershipConfirmed || !input.businessConfirmed || !current.evidence.excerpt.trim()) throw new ContactError("CONFIRMATION_REQUIRED", "必须核对证据并分别确认账号归属及明确商务用途");
-      const candidateFingerprint = suppressionFingerprint(current.type, current.normalizedValue);
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:suppression:${candidateFingerprint}`}))::text AS locked`;
+      if (current.type !== initial.type || current.normalizedValue !== initial.normalizedValue) throw new ContactError("REVIEW_CONFLICT", "联系项已被其他操作更新，请刷新后再审核", 409);
       const suppression = await tx.contactSuppression.findMany({ where: { fingerprint: { in: suppressionFingerprintCandidates(current.type, current.normalizedValue) }, expiresAt: { gt: now } }, select: { id: true }, take: 1 });
       if (current.suppressed || suppression.length) throw new ContactError("CONTACT_SUPPRESSED", "该联系方式当前受拒绝联系规则约束，不能重新批准", 409);
     }

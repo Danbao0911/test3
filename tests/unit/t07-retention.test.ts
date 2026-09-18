@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCsv, decryptPayload, encryptPayload, suppressionFingerprint } from "../../src/lib/data-protection";
+import { buildCsv, decryptPayload, encryptPayload, stableIdentityFingerprints, suppressionFingerprint } from "../../src/lib/data-protection";
 import { deletionRequestSchema, exportCreateSchema } from "../../src/lib/validation";
 
 process.env.APP_MODE = "test";
@@ -13,6 +13,17 @@ describe("T07 retention and export guards", () => {
     expect(suppressionFingerprint("PHONE", "person@example.com")).not.toBe(first);
     expect(first).not.toContain("example.com");
     expect(suppressionFingerprint("CONTACT_URL", "https://example.com/Book#A")).not.toBe(suppressionFingerprint("CONTACT_URL", "https://example.com/book#a"));
+  });
+
+  it("stores independent account identity rules instead of requiring a composite match", () => {
+    const withId = stableIdentityFingerprints({ platform: "X", nativeId: "native-1", normalizedProfileUrl: "https://example.com/x/one" });
+    const changedProfile = stableIdentityFingerprints({ platform: "X", nativeId: "native-1", normalizedProfileUrl: "https://example.com/x/two" });
+    const missingId = stableIdentityFingerprints({ platform: "X", normalizedProfileUrl: "https://example.com/x/one" });
+    expect(withId.nativeId).toBe(changedProfile.nativeId);
+    expect(withId.profileUrl).not.toBe(changedProfile.profileUrl);
+    expect(withId.profileUrl).toBe(missingId.profileUrl);
+    expect(withId.nativeId).not.toBeNull();
+    expect(missingId.nativeId).toBeNull();
   });
 
   it("encrypts/decrypts temporary payloads and neutralizes CSV formulas", () => {
