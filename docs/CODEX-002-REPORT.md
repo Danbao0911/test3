@@ -1,6 +1,6 @@
-# CODEX-002 · 商务联系候选与证据核验
+# CODEX-002 · 商务联系候选、证据核验与账号工作台
 
-> R1 第二部分审查整改已在最终提交 `a7f1396e965e6510f4f3bdb06e3ff31d86a09c14` 完成并推送到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。最新 R01—R05 结果、最终 CI、旧数据迁移测试和本地/CI 边界以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；本文以下内容保留首轮 CODEX-002 实现的历史说明。
+> R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；后续 T05 账号工作台、收藏、负责人和人工跟进以 [`CODEX-002-T05-REPORT.md`](./CODEX-002-T05-REPORT.md) 为准。两轮均已推送到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
