@@ -127,8 +127,10 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
   afterAll(async () => {
     if (!databaseReady) { await prisma.$disconnect(); return; }
     await stopTestServer(server);
-    if (createdAccountIds.length) await prisma.accountLink.deleteMany({ where: { OR: [{ leftAccountId: { in: createdAccountIds } }, { rightAccountId: { in: createdAccountIds } }] } });
-    if (createdAccountIds.length) await prisma.account.deleteMany({ where: { id: { in: createdAccountIds } } });
+    const fixtureAccounts = createdSourceIds.length ? await prisma.account.findMany({ where: { sourceId: { in: createdSourceIds } }, select: { id: true } }) : [];
+    const allAccountIds = [...new Set([...createdAccountIds, ...fixtureAccounts.map((account) => account.id)])];
+    if (allAccountIds.length) await prisma.accountLink.deleteMany({ where: { OR: [{ leftAccountId: { in: allAccountIds } }, { rightAccountId: { in: allAccountIds } }] } });
+    if (allAccountIds.length) await prisma.account.deleteMany({ where: { id: { in: allAccountIds } } });
     if (createdSourceIds.length) await prisma.sourcePolicySnapshot.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     if (createdUserIds.length) await prisma.auditEvent.deleteMany({ where: { actorId: { in: createdUserIds } } });
@@ -141,7 +143,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const sourceId = await createSource();
     const left = await createAccount(sourceId, "same-left");
     const right = await createAccount(sourceId, "same-right");
-    const duplicate = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: "t06-duplicate", displayName: "另一个名称", profileUrl: "https://example.com/demo/x/same-left", organization: "T06 测试机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: "https://example.com/demo/source/duplicate" }) });
+    const duplicate = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: "t06-duplicate", displayName: "另一个名称", profileUrl: "https://example.com/demo/x/t06-same-left", organization: "T06 测试机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: "https://example.com/demo/source/duplicate" }) });
     expect(duplicate.response.status, JSON.stringify(duplicate.data)).toBe(409);
     expect(duplicate.data.error).toBe("DUPLICATE");
     expect((await request("viewer", `/api/accounts/${left}`)).data.item).toMatchObject({ id: left, displayName: "T06 同名账号" });
@@ -167,7 +169,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const left = await createAccount(sourceId, "review-left");
     const right = await createAccount(sourceId, "review-right");
     const link = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
-    expect(link.response.status, JSON.stringify(link.data)).toBe(201);
+    expect(link.response.status, `${JSON.stringify(link.data)}\n${serverOutput.join("").slice(-4_000)}`).toBe(201);
     expect(link.data.item).toMatchObject({ status: "PENDING", usable: false, basis: "MANUAL", version: 1 });
     const linkId = link.data.item!.id as string;
     const confirmed = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "人工核对两个账号的公开主体资料后确认" }) });
@@ -196,7 +198,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const left = await createAccount(sourceId, "permissions-left");
     const right = await createAccount(sourceId, "permissions-right");
     const created = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
-    expect(created.response.status, JSON.stringify(created.data)).toBe(201);
+    expect(created.response.status, `${JSON.stringify(created.data)}\n${serverOutput.join("").slice(-4_000)}`).toBe(201);
     const linkId = created.data.item!.id as string;
     const viewerList = await request("viewer", "/api/account-links?status=PENDING");
     const viewerItem = viewerList.data.items?.find((item) => item.id === linkId);

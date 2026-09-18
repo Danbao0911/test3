@@ -5,6 +5,7 @@ export function accountLinkErrorResponse(error: unknown) {
   if (error instanceof AccountLinkError) {
     return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
   }
+  if (process.env.APP_MODE === "test") console.error("account-link test failure", error instanceof Error ? error.message : "unknown error");
   return NextResponse.json({ error: "DATABASE_ERROR", message: "账号关联操作失败；未提交的事务已回滚" }, { status: 500 });
 }
 
