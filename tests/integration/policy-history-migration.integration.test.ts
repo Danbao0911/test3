@@ -52,6 +52,7 @@ describe("R04 policy snapshot incremental migration", () => {
     await client.query(migrations[3]);
     await client.query(migrations[4]);
     await client.query(migrations[5]);
+    await client.query(migrations[6]);
   }, 30_000);
 
   afterAll(async () => {
