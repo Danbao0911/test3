@@ -43,6 +43,17 @@ async function request(user: UserKey | null, pathname: string, init: RequestInit
 
 function jsonBody(value: unknown) { return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) }; }
 
+function createRequestBarrier(parties: number) {
+  let arrived = 0;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  return async () => {
+    arrived += 1;
+    if (arrived === parties) release();
+    await released;
+  };
+}
+
 async function waitForHealth() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -250,6 +261,46 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect(deletedAccount.response.status).toBe(201);
     expect(await prisma.contactPoint.findUnique({ where: { id: accountBContact }, select: { status: true, suppressed: true } })).toMatchObject({ status: "INVALID", suppressed: true });
   }, 90_000);
+
+  it("LATEST-R03 同步屏障下下载/删除和抑制/提取/批准遵循统一锁序", async () => {
+    const downloadFixture = await createFixture("LATEST 并发下载删除");
+    const exportJob = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [downloadFixture.accountId], expiresInMinutes: 10 }) });
+    expect(exportJob.response.status).toBe(201);
+    const downloadBarrier = createRequestBarrier(2);
+    const [download, deleteAccount] = await Promise.all([
+      (async () => { await downloadBarrier(); return request("admin", exportJob.data.item!.downloadUrl as string); })(),
+      (async () => { await downloadBarrier(); return request("admin", "/api/deletion-requests", { method: "POST", ...jsonBody({ accountId: downloadFixture.accountId, reason: "LATEST 并发下载删除", confirm: true }) }); })(),
+    ]);
+    expect(deleteAccount.response.status).toBe(201);
+    expect([200, 410]).toContain(download.response.status);
+    expect(download.response.status).not.toBeGreaterThanOrEqual(500);
+    expect(await prisma.account.findUnique({ where: { id: downloadFixture.accountId } })).toBeNull();
+
+    const extractFixture = await createFixture("LATEST 并发抑制提取");
+    const extractBarrier = createRequestBarrier(2);
+    const [suppression, extraction] = await Promise.all([
+      (async () => { await extractBarrier(); return request("reviewer", `/api/contacts/${extractFixture.contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "LATEST 并发抑制提取" }) }); })(),
+      (async () => { await extractBarrier(); return request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: extractFixture.accountId, sourceId: extractFixture.sourceId, sourceUrl: "https://example.com/demo/latest-r03-race", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "LATEST 并发抑制提取", context: "ACCOUNT_PROFILE", text: `商务邮箱：${extractFixture.contactValue}` }) }); })(),
+    ]);
+    expect(suppression.response.status).toBe(200);
+    expect(extraction.response.status).toBe(200);
+    expect(extraction.response.status).not.toBeGreaterThanOrEqual(500);
+    const extractedCopies = await prisma.contactPoint.findMany({ where: { normalizedValue: extractFixture.contactValue, type: "EMAIL" }, select: { status: true, suppressed: true } });
+    expect(extractedCopies.length).toBeGreaterThanOrEqual(1);
+    expect(extractedCopies.every((contact) => contact.status === "INVALID" && contact.suppressed)).toBe(true);
+
+    const approvalFixture = await createFixture("LATEST 并发抑制批准");
+    const current = await prisma.contactPoint.findUniqueOrThrow({ where: { id: approvalFixture.contactId }, select: { version: true } });
+    const approvalBarrier = createRequestBarrier(2);
+    const [approvalSuppression, approval] = await Promise.all([
+      (async () => { await approvalBarrier(); return request("reviewer", `/api/contacts/${approvalFixture.contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "LATEST 并发抑制批准" }) }); })(),
+      (async () => { await approvalBarrier(); return request("reviewer", `/api/contacts/${approvalFixture.contactId}`, { method: "PATCH", ...jsonBody({ version: current.version, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "LATEST 并发批准" }) }); })(),
+    ]);
+    expect(approvalSuppression.response.status).toBe(200);
+    expect([200, 409]).toContain(approval.response.status);
+    expect(approval.response.status).not.toBeGreaterThanOrEqual(500);
+    expect(await prisma.contactPoint.findUnique({ where: { id: approvalFixture.contactId }, select: { status: true, suppressed: true } })).toMatchObject({ status: "INVALID", suppressed: true });
+  }, 120_000);
 
   it("T07R1-R03 联系到期会清理证据和未到期导出载荷", async () => {
     const fixture = await createFixture("T07 联系到期清理");
