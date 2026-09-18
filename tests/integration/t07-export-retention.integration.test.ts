@@ -235,7 +235,9 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect((await prisma.contactPoint.findUnique({ where: { id: fixture.contactId }, select: { expiresAt: true } }))?.expiresAt.getTime()).toBeLessThan(Date.now());
     const cleaned = await request("admin", "/api/retention/cleanup", { method: "POST", ...jsonBody({ batchSize: 100 }) });
     expect(cleaned.response.status).toBe(200);
-    expect(cleaned.data.item.contacts).toBeGreaterThanOrEqual(1);
+    const cleanupItem = cleaned.data.item;
+    if (!cleanupItem) throw new Error("retention cleanup response did not include item");
+    expect(cleanupItem.contacts).toBeGreaterThanOrEqual(1);
     expect(await prisma.evidence.count({ where: { accountId: fixture.accountId } })).toBe(0);
     expect(await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string } })).toBeNull();
     expect(await prisma.contactPoint.findUnique({ where: { id: fixture.contactId } })).toBeNull();
