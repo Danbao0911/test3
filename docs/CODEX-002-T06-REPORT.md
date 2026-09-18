@@ -4,10 +4,10 @@
 
 本轮继续更新现有 [PR #2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review`，只追加 T06，不修改 `main`、不强推、不自动合并、不部署生产。
 
-- 最终 head：`62bd167636aa213cdedec2fb6c2ac662ea1034cb`
+- T06 功能、测试与报告交付提交：`4831bbcedf2a8b453b4f2ade88fdd51a077711fd`
 - 真实 PR：[Danbao0911/test3#2](https://github.com/Danbao0911/test3/pull/2)，状态 `OPEN`
-- 成功 PR CI：[35318758595](https://github.com/Danbao0911/test3/actions/runs/35318758595)，同一 SHA 的 verify/e2e 均成功
-- Push CI：[35318755068](https://github.com/Danbao0911/test3/actions/runs/35318755068)，verify 成功；e2e 首次和仅失败 job 重跑均失败在既有 T05 浏览器筛选用例，T06 新增浏览器用例通过。该 Push e2e 非绿色事实保留在报告中，不用 PR CI 的绿色结果掩盖。
+- 成功 Push CI：[35319276419](https://github.com/Danbao0911/test3/actions/runs/35319276419)
+- 成功 PR CI：[35319281931](https://github.com/Danbao0911/test3/actions/runs/35319281931)
 
 本报告不把绿色 CI 表述为生产上线或四平台自动采集。
 
@@ -66,6 +66,6 @@ T06 目标是：同平台身份精确去重；不同账号不因同名、头像�
 
 其中新增 T06 为 2 个单元测试、3 个真实 HTTP 测试和 1 个浏览器测试；集成总数包含既有 90 行导入、来源/联系审核、T05 工作台及 legacy 迁移回归。没有使用 skip、continue-on-error 或自动重试旧策略请求。
 
-Push CI `35318755068` 的 verify job 实际成功并包含同样的 96 单元、45 集成和 CI build。该 Push run 的 e2e 首次失败 1 项，失败用例是既有 `tests/e2e/account-import.spec.ts` 的 T05 收藏筛选断言；仅失败 job 重跑仍在同一断言失败，其他 6 个 E2E（含 T06）通过。独立 PR CI `35318758595` 对同一 SHA 的 7 个 E2E 全部通过，因此该差异记录为测试环境非确定性结果，不能记为 Push e2e 通过。
+最终 Push CI `35319276419` 和 PR CI `35319281931` 均为成功，verify/e2e 两个 job 均通过；7 个 E2E（含 T06）全部通过。此前 `35317902401`、`35318250023`、`35318507519` 是修复 fixture 和 advisory lock 期间的失败 run，`35318755068` 还记录过一次既有 T05 筛选用例的非确定性失败；这些均不是最终交付依据。最终 run 没有失败或跳过。
 
 T07 的删除、拒绝联系抑制、到期物理清理和受控导出仍未实现；真实平台采集、真实联系人提取/批准和生产外联仍禁止。历史上已经丢失的关联证据不会伪造补回，人工复核仍需新证据。

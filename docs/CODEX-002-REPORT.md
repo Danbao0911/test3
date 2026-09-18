@@ -6,7 +6,7 @@
 
 ## 后续 T06 状态
 
-T06 去重与跨账号关联审核已追加到同一 PR，最终 head 为 `62bd167636aa213cdedec2fb6c2ac662ea1034cb`；修改位置、迁移影响、真实 HTTP/E2E 映射和 CI 统计见 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md)。成功 PR CI 为 [35318758595](https://github.com/Danbao0911/test3/actions/runs/35318758595)：96 单元、45 集成、7 E2E 全部通过；Push CI 的 verify 通过，但其独立 e2e 受到既有 T05 筛选用例的非确定性失败影响，详见 T06 报告。
+T06 去重与跨账号关联审核已追加到同一 PR，交付提交为 `4831bbcedf2a8b453b4f2ade88fdd51a077711fd`；修改位置、迁移影响、真实 HTTP/E2E 映射和 CI 统计见 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md)。最终 Push CI 为 [35319276419](https://github.com/Danbao0911/test3/actions/runs/35319276419)，PR CI 为 [35319281931](https://github.com/Danbao0911/test3/actions/runs/35319281931)，两套 verify/e2e 均成功：96 单元、45 集成、7 E2E 全部通过。
 
 ## 已实现
 
