@@ -9,6 +9,7 @@ const links = [
   ["导入中心", "/imports"],
   ["数据来源", "/sources"],
   ["联系审核", "/reviews"],
+  ["账号关联审核", "/account-links"],
 ] as const;
 
 export function Navigation({ email, mode, role }: { email: string; mode: "demo" | "production" | "test"; role: Role }) {

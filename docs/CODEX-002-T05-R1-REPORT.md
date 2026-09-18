@@ -93,4 +93,4 @@ T05-R1 已完成并追加更新现有 [PR #2](https://github.com/Danbao0911/test
 
 本地已运行并通过：`pnpm db:generate`、`pnpm test:unit`（94/94）、`pnpm lint`、`pnpm typecheck`、`git diff --check`。本地未运行：`pnpm install --frozen-lockfile`、`pnpm db:migrate`、`pnpm test:integration`、`pnpm test:e2e`、`pnpm build`；这些均由最终 CI 在隔离环境中实际运行并通过。
 
-未完成或明确不在本轮范围：T06/T07 平台采集、真实外联、真实联系人提取/批准、抑制系统、物理删除和受控导出。绿色 CI 不代表生产上线，不代表已经具备四平台自动采集能力。PR #2 保持打开，未自动合并。
+未完成或明确不在本轮范围：T07 平台采集、真实外联、真实联系人提取/批准、抑制系统、物理删除和受控导出。T06 去重与关联审核另见 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md)。绿色 CI 不代表生产上线，不代表已经具备四平台自动采集能力。PR #2 保持打开，未自动合并。

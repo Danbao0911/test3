@@ -31,6 +31,7 @@ type Account = {
   source: { id: string; name: string; type: string; status: string; allowImport: boolean; expiresAt: string | null };
 };
 type User = { id: string; email: string; role: string };
+type AccountLink = { id: string; status: string; basis: string; usable: boolean; leftAccount: { id: string; displayName: string }; rightAccount: { id: string; displayName: string }; source: { name: string }; reason: string | null };
 
 async function responseData(response: Response): Promise<Record<string, unknown>> {
   try {
@@ -49,6 +50,7 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
   const [form, setForm] = useState({ displayName: "", organization: "", serviceTags: "", region: "" });
   const [workspaceForm, setWorkspaceForm] = useState({ ownerId: "", status: "NOT_CONTACTED", note: "", confirmReactivation: false });
   const [users, setUsers] = useState<User[]>([]);
+  const [links, setLinks] = useState<AccountLink[]>([]);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [workspaceSaved, setWorkspaceSaved] = useState(false);
@@ -63,6 +65,11 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
     if (!response.ok) { setError(messageOf(data, "账号加载失败")); return; }
     const item = data.item as Account;
     setAccount(item);
+    const linkResponse = await fetch(`/api/account-links?accountId=${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (linkResponse.ok) {
+      const linkData = await responseData(linkResponse);
+      setLinks(Array.isArray(linkData.items) ? linkData.items as AccountLink[] : []);
+    }
     setForm({ displayName: item.displayName, organization: item.organization ?? "", serviceTags: item.serviceTags.join("|"), region: item.region ?? "" });
     setWorkspaceForm({ ownerId: item.owner?.id ?? "", status: item.followUp.status, note: item.followUp.note ?? "", confirmReactivation: false });
   }, [id, router]);
@@ -165,6 +172,7 @@ export function AccountDetail({ id, canEdit }: { id: string; canEdit: boolean })
         {canEdit && <><div className="muted small full">当前版本：{account.workspaceVersion} · 当前状态：{followUpLabels[workspaceForm.status] ?? workspaceForm.status}</div>{workspaceSaved ? <div className="notice success full">收藏、负责人和跟进状态已保存。</div> : null}<div className="form-actions full"><button className="button" disabled={workspaceBusy}>{workspaceBusy ? "保存中…" : "保存工作台状态"}</button></div></>}
       </form>
     </section>
+    <section className="card" style={{ marginBottom: 18 }}><div className="page-header" style={{ marginBottom: 12 }}><div><h2 style={{ margin: 0, fontSize: 18 }}>账号关联</h2><p className="muted small">关联不会合并账号；共享联系只能作为待人工核验候选。</p></div><Link className="button secondary" href="/account-links">打开关联审核</Link></div>{links.length ? links.map((link) => { const other = link.leftAccount.id === id ? link.rightAccount : link.leftAccount; return <div className="notice" key={link.id}><strong>{other.displayName}</strong> · {link.status === "PENDING" ? "待人工核验" : link.status === "CONFIRMED" ? "已确认" : "已撤销"} · {link.usable ? "当前可用" : "当前不可用"}{link.reason ? <p className="small">审核理由：{link.reason}</p> : null}</div>; }) : <p className="muted">暂无账号关联记录。</p>}</section>
     {canEdit ? <section className="card"><h2 style={{ marginTop: 0, fontSize: 18 }}>维护业务资料</h2><p className="muted small">本轮只允许修改展示资料，不允许通过编辑更换平台身份或数据来源。</p><form className="form-grid" onSubmit={save}><div className="field"><label htmlFor="displayName">账号名称</label><input id="displayName" value={form.displayName} disabled={profileBusy} onChange={(e) => setForm({ ...form, displayName: e.target.value })} required /></div><div className="field"><label htmlFor="organization">机构</label><input id="organization" value={form.organization} disabled={profileBusy} onChange={(e) => setForm({ ...form, organization: e.target.value })} /></div><div className="field"><label htmlFor="serviceTags">服务标签（用 | 分隔）</label><input id="serviceTags" value={form.serviceTags} disabled={profileBusy} onChange={(e) => setForm({ ...form, serviceTags: e.target.value })} /></div><div className="field"><label htmlFor="region">公开服务地区</label><input id="region" value={form.region} disabled={profileBusy} onChange={(e) => setForm({ ...form, region: e.target.value })} /></div>{saved ? <div className="notice success full">已保存。</div> : null}<div className="form-actions full"><button className="button" disabled={profileBusy}>{profileBusy ? "保存中…" : "保存资料"}</button></div></form></section> : <div className="notice">只读成员不能维护资料。</div>}
   </main>;
 }

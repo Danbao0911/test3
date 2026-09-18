@@ -22,6 +22,7 @@ export async function GET(_request: Request, { params }: Context) {
   } : {
     version: snapshot.version, status: snapshot.status, allowImport: snapshot.allowImport,
     allowExtract: snapshot.allowExtract, allowEvidenceText: snapshot.allowEvidenceText,
+    allowRelate: snapshot.allowRelate,
     retentionDays: snapshot.retentionDays, expiresAt: snapshot.expiresAt,
     permissionNote: snapshot.permissionNote, authorizationBasis: snapshot.authorizationBasis,
     changedBy: snapshot.changedBy, recordedAt: snapshot.recordedAt,

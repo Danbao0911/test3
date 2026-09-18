@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-type Source = { id: string; name: string; type: string; status: string; permissionNote: string; allowImport: boolean; allowExtract: boolean; allowEvidenceText: boolean; retentionDays: number; policyVersion: number; expiresAt: string | null };
+type Source = { id: string; name: string; type: string; status: string; permissionNote: string; allowImport: boolean; allowExtract: boolean; allowEvidenceText: boolean; allowRelate: boolean; retentionDays: number; policyVersion: number; expiresAt: string | null };
 
 export default function SourcesClientPage({ canManage, synthetic }: { canManage: boolean; synthetic: boolean }) {
   const router = useRouter();
@@ -58,22 +58,24 @@ function SourceRow({ source, canManage, busy, save }: { source: Source; canManag
   const [expiry, setExpiry] = useState(source.expiresAt ?? "");
   const [extract, setExtract] = useState(source.allowExtract);
   const [evidence, setEvidence] = useState(source.allowEvidenceText);
+  const [relate, setRelate] = useState(source.allowRelate);
   const [days, setDays] = useState(source.retentionDays);
   const expired = source.expiresAt && new Date(source.expiresAt) <= new Date();
   return <tr data-source-id={source.id}>
     <td>{source.name}<p className="muted small">策略 v{source.policyVersion}</p><Link className="text-link small" href={`/sources/${source.id}/history`}>查看历史</Link></td>
     <td>{source.status}{expired ? " · 已到期" : ""}<p className="small">{source.expiresAt ?? "来源未设到期时间"}</p></td>
     <td className="pre-wrap" style={{ maxWidth: 360 }}>{source.permissionNote || "未填写"}</td>
-    <td>录入：{source.allowImport ? "允许" : "关闭"}<br />联系提取：{source.allowExtract ? "允许" : "关闭"}<br />证据文本：{source.allowEvidenceText ? "允许" : "关闭"}<br />联系有效期：{source.retentionDays} 天</td>
+    <td>录入：{source.allowImport ? "允许" : "关闭"}<br />联系提取：{source.allowExtract ? "允许" : "关闭"}<br />证据文本：{source.allowEvidenceText ? "允许" : "关闭"}<br />账号关联：{source.allowRelate ? "允许" : "关闭"}<br />联系有效期：{source.retentionDays} 天</td>
     <td>{canManage && <div className="inline-actions">
       {source.status !== "APPROVED" && <button className="button" disabled={busy} onClick={() => void save({ status: "APPROVED", allowImport: true })}>批准录入</button>}
-      <button className="button secondary" disabled={busy} onClick={() => { setNote(source.permissionNote); setExpiry(source.expiresAt ?? ""); setExtract(source.allowExtract); setEvidence(source.allowEvidenceText); setDays(source.retentionDays); setEditing(!editing); }}>编辑策略</button>
+      <button className="button secondary" disabled={busy} onClick={() => { setNote(source.permissionNote); setExpiry(source.expiresAt ?? ""); setExtract(source.allowExtract); setEvidence(source.allowEvidenceText); setRelate(source.allowRelate); setDays(source.retentionDays); setEditing(!editing); }}>编辑策略</button>
       {source.status === "APPROVED" && <button className="button danger" disabled={busy} onClick={() => void save({ status: "REVOKED" })}>撤销</button>}
-      {editing && <form className="field" onSubmit={async e => { e.preventDefault(); if (await save({ permissionNote: note, expiresAt: expiry || null, allowExtract: extract, allowEvidenceText: evidence, retentionDays: days })) setEditing(false); }}>
+      {editing && <form className="field" onSubmit={async e => { e.preventDefault(); if (await save({ permissionNote: note, expiresAt: expiry || null, allowExtract: extract, allowEvidenceText: evidence, allowRelate: relate, retentionDays: days })) setEditing(false); }}>
         <label>处理依据<textarea aria-label="处理依据" value={note} onChange={e => setNote(e.target.value)} required maxLength={2000} disabled={busy} /></label>
         <label>到期时间（ISO 格式）<input aria-label="到期时间" value={expiry} onChange={e => setExpiry(e.target.value)} placeholder="2026-12-31T00:00:00Z" disabled={busy} /></label>
         <label><input type="checkbox" checked={extract} onChange={e => setExtract(e.target.checked)} disabled={busy} />允许联系提取</label>
         <label><input type="checkbox" checked={evidence} onChange={e => setEvidence(e.target.checked)} disabled={busy} />允许保留最小证据文本</label>
+        <label><input type="checkbox" checked={relate} onChange={e => setRelate(e.target.checked)} disabled={busy} />允许人工账号关联审核</label>
         <label>联系有效天数<input type="number" min={1} max={365} value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy} /></label>
         <p className="small muted">保存会使旧版本联系项暂不可用，需重新提取和审核。尚无物理到期清理任务，请勿上线真实数据。</p>
         <button className="button" disabled={busy}>保存策略</button>

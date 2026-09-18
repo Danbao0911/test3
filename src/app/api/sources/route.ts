@@ -31,11 +31,12 @@ export async function POST(request: Request) {
   const source = await prisma.$transaction(async (tx) => {
     const source = await tx.source.create({ data: {
       name: parsed.data.name, type: parsed.data.type, permissionNote: parsed.data.permissionNote,
-      status: "DRAFT", allowImport: false,
+      status: "DRAFT", allowImport: false, allowRelate: false,
     } });
     await tx.sourcePolicySnapshot.create({ data: {
       sourceId: source.id, version: source.policyVersion, status: source.status,
       allowImport: source.allowImport, allowExtract: source.allowExtract, allowEvidenceText: source.allowEvidenceText,
+      allowRelate: source.allowRelate,
       retentionDays: source.retentionDays, expiresAt: source.expiresAt, permissionNote: source.permissionNote,
       authorizationBasis: source.permissionNote || "DRAFT：尚未批准，授权依据待补充",
       changedById: user.id, changeType: "CREATED", isLegacy: false,

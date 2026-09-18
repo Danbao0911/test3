@@ -41,22 +41,23 @@ export async function PATCH(request: Request, { params }: Context) {
       if (nextStatus === "APPROVED" && !nextNote.trim()) throw new Error("PERMISSION_NOTE_REQUIRED");
       const allowExtract = nextStatus === "APPROVED" && (parsed.data.allowExtract ?? current.allowExtract);
       const allowEvidenceText = nextStatus === "APPROVED" && (parsed.data.allowEvidenceText ?? current.allowEvidenceText);
+      const allowRelate = nextStatus === "APPROVED" && (parsed.data.allowRelate ?? current.allowRelate);
       if (allowExtract && !allowEvidenceText) throw new Error("EVIDENCE_PERMISSION_REQUIRED");
       const allowImport = nextStatus === "APPROVED" ? parsed.data.allowImport ?? current.allowImport : false;
       const retentionDays = parsed.data.retentionDays ?? current.retentionDays;
       const expiresAt = parsed.data.expiresAt === undefined ? current.expiresAt : parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null;
       const changed = current.status !== nextStatus || current.permissionNote !== nextNote || current.allowImport !== allowImport ||
-        current.allowExtract !== allowExtract || current.allowEvidenceText !== allowEvidenceText || current.retentionDays !== retentionDays ||
+        current.allowExtract !== allowExtract || current.allowEvidenceText !== allowEvidenceText || current.allowRelate !== allowRelate || current.retentionDays !== retentionDays ||
         (current.expiresAt?.getTime() ?? null) !== (expiresAt?.getTime() ?? null);
       if (!changed) return current;
       const version = current.policyVersion + 1;
       const changeType = current.status !== nextStatus ? `STATUS_${nextStatus}` : "POLICY_CHANGED";
       const updated = await tx.source.update({ where: { id }, data: {
-        permissionNote: nextNote, status: nextStatus, allowImport, allowExtract, allowEvidenceText, retentionDays,
+        permissionNote: nextNote, status: nextStatus, allowImport, allowExtract, allowEvidenceText, allowRelate, retentionDays,
         policyVersion: version, policyChangedById: user.id, expiresAt,
       } });
       await tx.sourcePolicySnapshot.create({ data: {
-        sourceId: id, version, status: nextStatus, allowImport, allowExtract, allowEvidenceText, retentionDays, expiresAt,
+        sourceId: id, version, status: nextStatus, allowImport, allowExtract, allowEvidenceText, allowRelate, retentionDays, expiresAt,
         permissionNote: nextNote, authorizationBasis: nextNote || "DRAFT：尚未批准，授权依据待补充",
         changedById: user.id, changeType, isLegacy: false,
       } });

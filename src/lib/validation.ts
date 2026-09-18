@@ -78,11 +78,41 @@ export const sourcePatchSchema = z
     allowImport: z.boolean().optional(),
     allowExtract: z.boolean().optional(),
     allowEvidenceText: z.boolean().optional(),
+    allowRelate: z.boolean().optional(),
     retentionDays: z.number().int().min(1).max(365).optional(),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个来源修改字段");
+
+export const accountLinkCreateSchema = z
+  .object({
+    leftAccountId: z.string().uuid(),
+    rightAccountId: z.string().uuid(),
+    sourceId: z.string().uuid(),
+    basis: z.enum(["MANUAL", "SHARED_CONTACT_CANDIDATE"]),
+    basisContactId: z.string().uuid().optional(),
+    matchingContactId: z.string().uuid().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.basis === "SHARED_CONTACT_CANDIDATE" && (!value.basisContactId || !value.matchingContactId)) {
+      context.addIssue({ code: "custom", path: ["basisContactId"], message: "共享联系候选必须保留两条联系证据的内部引用" });
+    }
+    if (value.basis === "MANUAL" && (value.basisContactId || value.matchingContactId)) {
+      context.addIssue({ code: "custom", path: ["basisContactId"], message: "人工关联不能伪造共享联系证据" });
+    }
+  });
+
+export const accountLinkSuggestionSchema = z.object({ contactId: z.string().uuid() }).strict();
+
+export const accountLinkReviewSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    status: z.enum(["CONFIRMED", "REVOKED"]),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
 
 export const loginSchema = z
   .object({

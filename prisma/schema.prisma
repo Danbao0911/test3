@@ -60,6 +60,17 @@ enum FollowUpStatus {
   DO_NOT_CONTACT
 }
 
+enum AccountLinkStatus {
+  PENDING
+  CONFIRMED
+  REVOKED
+}
+
+enum AccountLinkBasis {
+  MANUAL
+  SHARED_CONTACT_CANDIDATE
+}
+
 model User {
   id            String         @id @default(uuid()) @db.Uuid
   email         String         @unique @db.VarChar(320)
@@ -75,6 +86,8 @@ model User {
   ownedAccounts  Account[]      @relation("AccountOwner")
   favorites      AccountFavorite[]
   followUpUpdates AccountFollowUp[] @relation("FollowUpUpdater")
+  createdAccountLinks AccountLink[] @relation("AccountLinkCreator")
+  reviewedAccountLinks AccountLink[] @relation("AccountLinkReviewer")
 }
 
 model Session {
@@ -107,6 +120,7 @@ model Source {
   allowImport    Boolean      @default(false)
   allowExtract   Boolean      @default(false)
   allowEvidenceText Boolean   @default(false)
+  allowRelate    Boolean      @default(false)
   retentionDays  Int          @default(30)
   policyVersion  Int          @default(1)
   policyChangedById String?   @db.Uuid
@@ -118,6 +132,7 @@ model Source {
   importBatches  ImportBatch[]
   evidence       Evidence[]
   policySnapshots SourcePolicySnapshot[]
+  accountLinks   AccountLink[]
 
   @@index([status, allowImport])
   @@index([expiresAt])
@@ -147,6 +162,8 @@ model Account {
   evidence              Evidence[]
   favorites             AccountFavorite[]
   followUp              AccountFollowUp?
+  linksFrom             AccountLink[] @relation("AccountLinkLeft")
+  linksTo               AccountLink[] @relation("AccountLinkRight")
 
   @@unique([platform, normalizedProfileUrl])
   @@unique([platform, nativeId])
@@ -226,6 +243,7 @@ model SourcePolicySnapshot {
   allowImport       Boolean?
   allowExtract      Boolean?
   allowEvidenceText Boolean?
+  allowRelate      Boolean?
   retentionDays     Int?
   expiresAt         DateTime?
   permissionNote    String?  @db.VarChar(2000)
@@ -279,9 +297,42 @@ model ContactPoint {
   createdAt           DateTime      @default(now())
   evidence            Evidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
   reviews             ReviewDecision[]
+  linkBasisCandidates AccountLink[]  @relation("AccountLinkBasisContact")
+  linkMatchingCandidates AccountLink[] @relation("AccountLinkMatchingContact")
 
   @@index([status, createdAt, id])
   @@index([expiresAt])
+}
+
+model AccountLink {
+  id                String            @id @default(uuid()) @db.Uuid
+  leftAccountId     String            @db.Uuid
+  rightAccountId    String            @db.Uuid
+  sourceId          String            @db.Uuid
+  policyVersion     Int
+  basis             AccountLinkBasis
+  status            AccountLinkStatus @default(PENDING)
+  basisContactId    String?           @db.Uuid
+  matchingContactId String?           @db.Uuid
+  reason            String            @default("") @db.VarChar(500)
+  version           Int               @default(1)
+  createdById       String            @db.Uuid
+  reviewedById      String?           @db.Uuid
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  leftAccount       Account           @relation("AccountLinkLeft", fields: [leftAccountId], references: [id], onDelete: Cascade)
+  rightAccount      Account           @relation("AccountLinkRight", fields: [rightAccountId], references: [id], onDelete: Cascade)
+  source            Source            @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  basisContact      ContactPoint?     @relation("AccountLinkBasisContact", fields: [basisContactId], references: [id], onDelete: SetNull)
+  matchingContact   ContactPoint?     @relation("AccountLinkMatchingContact", fields: [matchingContactId], references: [id], onDelete: SetNull)
+  createdBy         User              @relation("AccountLinkCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  reviewedBy        User?             @relation("AccountLinkReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@unique([leftAccountId, rightAccountId])
+  @@index([status, createdAt])
+  @@index([sourceId, status])
+  @@index([leftAccountId, status])
+  @@index([rightAccountId, status])
 }
 
 model ReviewDecision {

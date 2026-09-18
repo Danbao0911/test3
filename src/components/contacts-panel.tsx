@@ -87,6 +87,7 @@ function ContactCard({ item, canReview, reload }: { item: Contact; canReview: bo
   const [business, setBusiness] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
   const [error, setError] = useState("");
   async function review(status: string) {
     setBusy(true); setError("");
@@ -98,14 +99,27 @@ function ContactCard({ item, canReview, reload }: { item: Contact; canReview: bo
     } catch (err) { setError(err instanceof Error ? err.message : "网络异常，请刷新确认操作结果"); }
     finally { setBusy(false); }
   }
+  async function suggestLinks() {
+    if (suggestBusy || item.status !== "APPROVED" || item.masked) return;
+    setSuggestBusy(true); setError("");
+    try {
+      const response = await fetch("/api/account-links/suggest", { method: "POST", headers: { "Content-Type": "application/json", Origin: window.location.origin }, body: JSON.stringify({ contactId: item.id }) });
+      let data: { message?: string } = {};
+      try { data = await response.json(); } catch { /* handled below */ }
+      if (!response.ok) throw new Error(data.message ?? "生成关联候选失败");
+      await reload();
+    } catch (err) { setError(err instanceof Error ? err.message : "网络异常，未确认候选生成结果"); }
+    finally { setSuggestBusy(false); }
+  }
   return <article className="card contact-card" data-contact-id={item.id} style={{ marginBottom: 16 }}>
     <div className="page-header"><div><h3>{types[item.type]} · {item.value}</h3><Link className="text-link" href={`/accounts/${item.account.id}/contacts`}>{item.account.displayName}</Link>{item.account.isDemo && <span className="badge warning">演示数据</span>}</div><div><span className="badge neutral">{statuses[item.status]}</span> <span className={`badge ${item.usable ? "success" : "warning"}`}>{item.usable ? "核验可用" : "当前不可用"}</span></div></div>
     <p className="small">来源：{item.source.name} · 证据策略 v{item.source.policyVersion} / 当前 v{item.source.currentVersion} · 有效至 {new Date(item.expiresAt).toLocaleString("zh-CN")}</p>
     {item.evidence ? <div className="notice"><a className="text-link" href={item.evidence.sourceUrl} target="_blank" rel="noopener noreferrer">主动打开字段证据 ↗</a><p>{item.evidence.fieldLocation} · 取得于 {new Date(item.evidence.capturedAt).toLocaleString("zh-CN")}</p><blockquote className="pre-wrap">{item.evidence.excerpt}</blockquote></div> : <p className="muted">原值与证据受权限、有效期或来源策略限制，已隐藏。</p>}
-    {canReview && <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
+    {canReview && <fieldset disabled={busy || suggestBusy} style={{ border: 0, padding: 0 }}>
       <div className="inline-actions"><label><input type="checkbox" checked={ownership} onChange={e => setOwnership(e.target.checked)} />已核对联系项归属本账号/机构</label><label><input type="checkbox" checked={business} onChange={e => setBusiness(e.target.checked)} />已核对明确商务用途</label></div>
       <div className="field" style={{ marginTop: 12 }}><label htmlFor={`reason-${item.id}`}>审核原因（不得复制联系值）</label><textarea id={`reason-${item.id}`} value={reason} maxLength={500} onChange={e => setReason(e.target.value)} /></div>
       <div className="inline-actions" style={{ marginTop: 12 }}><button className="button" disabled={!ownership || !business || !reason.trim() || item.masked || item.status !== "PENDING"} onClick={() => void review("APPROVED")}>确认通过</button><button className="button secondary" disabled={!reason.trim()} onClick={() => void review("REJECTED")}>驳回</button><button className="button danger" disabled={!reason.trim()} onClick={() => void review("INVALID")}>标记失效</button></div>
+      {item.status === "APPROVED" && <div className="inline-actions" style={{ marginTop: 12 }}><button className="button secondary" disabled={item.masked} onClick={() => void suggestLinks()}>{suggestBusy ? "生成中…" : "生成账号关联候选"}</button><span className="muted small">仅生成待人工核验候选，不会自动合并账号。</span></div>}
     </fieldset>}
     {error && <p className="notice error" role="alert">{error}</p>}
     <details><summary>审核历史（最近 30 条）</summary>{item.reviews.length ? item.reviews.map(r => <p key={r.id}>{statuses[r.status]} · {r.reviewer ?? "审核成员"} · {new Date(r.createdAt).toLocaleString("zh-CN")} {r.reason ?? ""}</p>) : <p className="muted">尚无人工审核记录。</p>}</details>

@@ -12,6 +12,7 @@ const migrations = [
   "20260918150000_policy_snapshots/migration.sql",
   "20260918180000_account_workspace/migration.sql",
   "20260918190000_account_workspace_version/migration.sql",
+  "20260918200000_account_links/migration.sql",
 ].map((relative) => readFileSync(path.join(process.cwd(), "prisma/migrations", relative), "utf8"));
 const schemaName = `policy_migration_${database.runId}_${randomUUID().replaceAll("-", "")}`;
 const sourceId = randomUUID();
@@ -49,6 +50,7 @@ describe("R04 policy snapshot incremental migration", () => {
     await client.query(migrations[2]);
     await client.query(migrations[3]);
     await client.query(migrations[4]);
+    await client.query(migrations[5]);
   }, 30_000);
 
   afterAll(async () => {
