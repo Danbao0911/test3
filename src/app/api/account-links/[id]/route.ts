@@ -3,7 +3,7 @@ import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/aut
 import { canMaintain } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { accountLinkReviewSchema, uuidSchema } from "@/lib/validation";
-import { accountLinkDto, accountLinkInclude, reviewAccountLink } from "@/lib/account-link-service";
+import { accountLinkDto, evaluateAccountLink, getAccountLink, reviewAccountLink } from "@/lib/account-link-service";
 import { accountLinkErrorResponse, readAccountLinkJson } from "@/lib/account-link-http";
 
 export const runtime = "nodejs";
@@ -15,9 +15,9 @@ export async function GET(_request: Request, { params }: Context) {
   const { id } = await params;
   if (!uuidSchema.safeParse(id).success) return NextResponse.json({ error: "LINK_NOT_FOUND", message: "账号关联不存在" }, { status: 404 });
   try {
-    const item = await prisma.accountLink.findUnique({ where: { id }, include: accountLinkInclude });
+    const item = await getAccountLink(prisma, id);
     if (!item) return NextResponse.json({ error: "LINK_NOT_FOUND", message: "账号关联不存在" }, { status: 404 });
-    return NextResponse.json({ item: accountLinkDto(item, user.role) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ item: accountLinkDto(item, user.role, await evaluateAccountLink(prisma, item.id)) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return accountLinkErrorResponse(error); }
 }
 
@@ -30,7 +30,9 @@ export async function PATCH(request: Request, { params }: Context) {
   try {
     const parsed = accountLinkReviewSchema.safeParse(await readAccountLinkJson(request));
     if (!parsed.success) return NextResponse.json({ error: "VALIDATION_ERROR", message: "审核需要当前版本、决定和非空原因" }, { status: 422 });
-    const item = await reviewAccountLink(prisma, user.id, id, parsed.data);
-    return NextResponse.json({ item: accountLinkDto(item, user.role) });
+    await reviewAccountLink(prisma, user.id, id, parsed.data);
+    const item = await getAccountLink(prisma, id);
+    if (!item) return NextResponse.json({ error: "LINK_NOT_FOUND", message: "账号关联不存在" }, { status: 404 });
+    return NextResponse.json({ item: accountLinkDto(item, user.role, await evaluateAccountLink(prisma, item.id)) });
   } catch (error) { return accountLinkErrorResponse(error); }
 }

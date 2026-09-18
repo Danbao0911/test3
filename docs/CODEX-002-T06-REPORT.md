@@ -1,5 +1,7 @@
 # CODEX-002-T06 · 去重与跨账号关联审核
 
+> T06-R1 已在同一分支继续整改证据、有效性、撤销、分页和请求边界；最新状态以 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md) 为准。本文件保留 T06 初始交付证据。
+
 ## 交付状态
 
 本轮继续更新现有 [PR #2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review`，只追加 T06，不修改 `main`、不强推、不自动合并、不部署生产。

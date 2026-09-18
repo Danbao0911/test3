@@ -88,6 +88,8 @@ model User {
   followUpUpdates AccountFollowUp[] @relation("FollowUpUpdater")
   createdAccountLinks AccountLink[] @relation("AccountLinkCreator")
   reviewedAccountLinks AccountLink[] @relation("AccountLinkReviewer")
+  createdAccountLinkEvidence AccountLinkEvidence[] @relation("AccountLinkEvidenceCreator")
+  accountLinkDecisions AccountLinkDecision[] @relation("AccountLinkDecisionActor")
 }
 
 model Session {
@@ -133,6 +135,7 @@ model Source {
   evidence       Evidence[]
   policySnapshots SourcePolicySnapshot[]
   accountLinks   AccountLink[]
+  accountLinkEvidence AccountLinkEvidence[]
 
   @@index([status, allowImport])
   @@index([expiresAt])
@@ -255,6 +258,7 @@ model SourcePolicySnapshot {
   source            Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   changedBy         User?    @relation("PolicySnapshotActor", fields: [changedById], references: [id], onDelete: Restrict)
   evidence          Evidence[]
+  accountLinkEvidence AccountLinkEvidence[]
 
   @@unique([sourceId, version])
   @@index([sourceId, recordedAt])
@@ -276,6 +280,7 @@ model Evidence {
   source          Source   @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   policySnapshot  SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
   contact         ContactPoint?
+  accountLinkReferences AccountLinkEvidence[] @relation("AccountLinkReferenceEvidence")
 
   @@index([accountId, createdAt])
   @@index([sourceId, policyVersion])
@@ -327,12 +332,63 @@ model AccountLink {
   matchingContact   ContactPoint?     @relation("AccountLinkMatchingContact", fields: [matchingContactId], references: [id], onDelete: SetNull)
   createdBy         User              @relation("AccountLinkCreator", fields: [createdById], references: [id], onDelete: Restrict)
   reviewedBy        User?             @relation("AccountLinkReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  evidences         AccountLinkEvidence[]
+  decisions         AccountLinkDecision[]
 
   @@unique([leftAccountId, rightAccountId])
   @@index([status, createdAt])
   @@index([sourceId, status])
   @@index([leftAccountId, status])
   @@index([rightAccountId, status])
+}
+
+// Relation-specific evidence is separate from shared-contact candidate evidence.
+// It contains only reviewable excerpts/locations and never a contact raw value.
+model AccountLinkEvidence {
+  id                   String   @id @default(uuid()) @db.Uuid
+  accountLinkId        String   @db.Uuid
+  sourceId             String   @db.Uuid
+  policyVersion        Int
+  policySnapshotId     String   @db.Uuid
+  referenceEvidenceId  String?  @db.Uuid
+  sourceUrl            String   @db.VarChar(2048)
+  capturedAt           DateTime
+  fieldLocation        String   @db.VarChar(240)
+  summary              String   @db.VarChar(500)
+  leftAccountVerified  Boolean
+  rightAccountVerified Boolean
+  createdById          String   @db.Uuid
+  createdAt            DateTime @default(now())
+  accountLink          AccountLink @relation(fields: [accountLinkId], references: [id], onDelete: Cascade)
+  source               Source @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot       SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  referenceEvidence    Evidence? @relation("AccountLinkReferenceEvidence", fields: [referenceEvidenceId], references: [id], onDelete: SetNull)
+  createdBy            User @relation("AccountLinkEvidenceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  decisions            AccountLinkDecision[]
+
+  @@index([accountLinkId, createdAt])
+  @@index([sourceId, policyVersion])
+}
+
+// Immutable review rounds preserve the reason and evidence pointer even when
+// the current AccountLink row advances to a later state.
+model AccountLinkDecision {
+  id            String   @id @default(uuid()) @db.Uuid
+  accountLinkId String   @db.Uuid
+  round         Int
+  fromStatus    AccountLinkStatus
+  toStatus      AccountLinkStatus
+  version       Int
+  reason        String   @db.VarChar(500)
+  evidenceId    String?  @db.Uuid
+  actorId       String   @db.Uuid
+  createdAt     DateTime @default(now())
+  accountLink   AccountLink @relation(fields: [accountLinkId], references: [id], onDelete: Cascade)
+  evidence      AccountLinkEvidence? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  actor         User @relation("AccountLinkDecisionActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([accountLinkId, round])
+  @@index([accountLinkId, createdAt])
 }
 
 model ReviewDecision {

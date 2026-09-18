@@ -104,15 +104,47 @@ export const accountLinkCreateSchema = z
     }
   });
 
-export const accountLinkSuggestionSchema = z.object({ contactId: z.string().uuid() }).strict();
-
 export const accountLinkReviewSchema = z
   .object({
     expectedVersion: z.number().int().positive(),
     status: z.enum(["CONFIRMED", "REVOKED"]),
     reason: z.string().trim().min(1).max(500),
+    evidence: z.array(z.object({
+      sourceId: z.uuid(),
+      referenceEvidenceId: z.uuid().optional(),
+      sourceUrl: z.string().trim().min(1).max(2048).optional(),
+      capturedAt: z.iso.datetime({ offset: true }),
+      fieldLocation: z.string().trim().min(1).max(240),
+      summary: z.string().trim().min(1).max(500),
+      leftAccountId: z.uuid(),
+      rightAccountId: z.uuid(),
+      leftAccountVerified: z.boolean(),
+      rightAccountVerified: z.boolean(),
+    }).strict()).max(4).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "CONFIRMED" && !value.evidence?.length) {
+      context.addIssue({ code: "custom", path: ["evidence"], message: "确认关联必须提交至少一条关系专用证据" });
+    }
+    for (const [index, item] of (value.evidence ?? []).entries()) {
+      if (!item.sourceUrl && !item.referenceEvidenceId) {
+        context.addIssue({ code: "custom", path: ["evidence", index, "sourceUrl"], message: "证据必须包含来源地址或已有证据引用" });
+      }
+      if (item.leftAccountId === item.rightAccountId) {
+        context.addIssue({ code: "custom", path: ["evidence", index], message: "证据必须同时指向两个不同账号" });
+      }
+      if (!item.leftAccountVerified || !item.rightAccountVerified) {
+        context.addIssue({ code: "custom", path: ["evidence", index], message: "必须分别核验两侧账号" });
+      }
+    }
+  });
+
+export const accountLinkSuggestionSchema = z.object({
+  contactId: z.uuid(),
+  cursor: z.uuid().optional(),
+  limit: z.number().int().min(1).max(50).default(50),
+}).strict();
 
 export const loginSchema = z
   .object({

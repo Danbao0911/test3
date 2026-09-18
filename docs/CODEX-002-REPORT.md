@@ -1,12 +1,12 @@
 # CODEX-002 · 商务联系候选、证据核验与账号工作台
 
-> R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；T05 账号工作台以 [`CODEX-002-T05-R1-REPORT.md`](./CODEX-002-T05-R1-REPORT.md) 为准；T06 去重与关联审核以 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md) 为准。均追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
+> R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；T05 账号工作台以 [`CODEX-002-T05-R1-REPORT.md`](./CODEX-002-T05-R1-REPORT.md) 为准；T06 初始交付以 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md) 为准，最新证据/有效性/撤销整改以 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md) 为准。均追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
 ## 后续 T06 状态
 
-T06 去重与跨账号关联审核已追加到同一 PR，交付提交为 `4831bbcedf2a8b453b4f2ade88fdd51a077711fd`；修改位置、迁移影响、真实 HTTP/E2E 映射和 CI 统计见 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md)。最终 Push CI 为 [35319276419](https://github.com/Danbao0911/test3/actions/runs/35319276419)，PR CI 为 [35319281931](https://github.com/Danbao0911/test3/actions/runs/35319281931)，两套 verify/e2e 均成功：96 单元、45 集成、7 E2E 全部通过。
+T06 初始去重与跨账号关联审核已追加到同一 PR；T06-R1 继续在该分支补齐关系专用证据、当前有效性、稳定加锁、不可变决定历史、网页撤销、分页建议和请求体边界。详见 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md)。本段历史 CI 数量仅对应 T06 初始提交，不代表 T06-R1 已完成验证；T06-R1 的真实 CI 结果以 R1 报告追加内容为准。
 
 ## 已实现
 

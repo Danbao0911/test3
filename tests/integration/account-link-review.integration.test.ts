@@ -48,6 +48,10 @@ function jsonBody(value: unknown) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) };
 }
 
+function relationEvidence(sourceId: string, leftAccountId: string, rightAccountId: string) {
+  return [{ sourceId, sourceUrl: "https://example.com/demo/evidence/t06-link-review", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "公开主体资料关联说明", summary: "人工分别核对两侧账号主体资料后确认关联", leftAccountId, rightAccountId, leftAccountVerified: true, rightAccountVerified: true }];
+}
+
 async function waitForHealth() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -172,25 +176,63 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     expect(link.response.status, `${JSON.stringify(link.data)}\n${serverOutput.join("").slice(-4_000)}`).toBe(201);
     expect(link.data.item).toMatchObject({ status: "PENDING", usable: false, basis: "MANUAL", version: 1 });
     const linkId = link.data.item!.id as string;
-    const confirmed = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "人工核对两个账号的公开主体资料后确认" }) });
+    const confirmed = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "人工核对两个账号的公开主体资料后确认", evidence: relationEvidence(sourceId, left, right) }) });
     expect(confirmed.response.status).toBe(200);
     expect(confirmed.data.item).toMatchObject({ status: "CONFIRMED", usable: true, version: 2 });
     const stale = await request("reviewerA", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "REVOKED", reason: "过期审核页" }) });
     expect(stale.response.status).toBe(409);
     expect(stale.data.error).toBe("LINK_CONFLICT");
+    const source = await request("admin", `/api/sources/${sourceId}`);
+    const sourceRevoked = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: source.data.item!.policyVersion as number, status: "REVOKED", allowRelate: false }) });
+    expect(sourceRevoked.response.status).toBe(200);
+    const current = await request("reviewerA", `/api/account-links/${linkId}`);
+    expect(current.response.status).toBe(200);
+    expect(current.data.item).toMatchObject({ status: "CONFIRMED", usable: false, unusableReason: "SOURCE_REVOKED", version: 2 });
+    const listed = await request("reviewerA", `/api/account-links?status=CONFIRMED`);
+    expect(listed.data.items?.find((item) => item.id === linkId)).toMatchObject({ status: "CONFIRMED", usable: false, unusableReason: "SOURCE_REVOKED" });
     const revoked = await request("reviewerA", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 2, status: "REVOKED", reason: "人工复核后撤销关联" }) });
     expect(revoked.response.status).toBe(200);
     expect(revoked.data.item).toMatchObject({ status: "REVOKED", usable: false, version: 3 });
     const cannotRestore = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 3, status: "CONFIRMED", reason: "不能静默恢复" }) });
     expect(cannotRestore.response.status).toBe(409);
     expect(cannotRestore.data.error).toBe("INVALID_TRANSITION");
-    const source = await request("admin", `/api/sources/${sourceId}`);
-    const sourceRevoked = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: source.data.item!.policyVersion as number, status: "REVOKED", allowRelate: false }) });
-    expect(sourceRevoked.response.status).toBe(200);
+  }, 30_000);
+
+  it("确认必须有关系证据，旧策略候选和同版本并发确认均被保护", async () => {
+    const sourceId = await createSource();
+    const left = await createAccount(sourceId, "evidence-left");
+    const right = await createAccount(sourceId, "evidence-right");
+    const created = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
+    expect(created.response.status).toBe(201);
+    const linkId = created.data.item!.id as string;
+    const withoutEvidence = await request("reviewerA", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "只有理由没有关系证据" }) });
+    expect(withoutEvidence.response.status).toBe(422);
+    expect(withoutEvidence.data.error).toBe("VALIDATION_ERROR");
+    const changed = await request("admin", `/api/sources/${sourceId}`);
+    const policyChanged = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: changed.data.item!.policyVersion as number, permissionNote: "T06 隔离测试授权依据 v2" }) });
+    expect(policyChanged.response.status).toBe(200);
+    const stale = await request("reviewerA", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "旧策略候选不能确认", evidence: relationEvidence(sourceId, left, right) }) });
+    expect(stale.response.status).toBe(409);
+    expect(stale.data.error).toBe("LINK_POLICY_STALE");
     const current = await request("reviewerA", `/api/account-links/${linkId}`);
-    expect(current.response.status).toBe(200);
-    const listed = await request("reviewerA", `/api/account-links?status=REVOKED`);
-    expect(listed.data.items?.find((item) => item.id === linkId)).toMatchObject({ usable: false });
+    expect(current.data.item).toMatchObject({ status: "PENDING", version: 1 });
+    const source2 = await createSource();
+    const left2 = await createAccount(source2, "concurrent-left");
+    const right2 = await createAccount(source2, "concurrent-right");
+    const link2 = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left2, rightAccountId: right2, sourceId: source2, basis: "MANUAL" }) });
+    const link2Id = link2.data.item!.id as string;
+    const responses = await Promise.all(["reviewerA", "reviewerB"].map((user) => request(user as UserKey, `/api/account-links/${link2Id}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "并发人工核对", evidence: relationEvidence(source2, left2, right2) }) })));
+    expect(responses.map((item) => item.response.status).sort()).toEqual([200, 409]);
+    expect((await request("reviewerA", `/api/account-links/${link2Id}`)).data.item).toMatchObject({ status: "CONFIRMED", version: 2 });
+  }, 30_000);
+
+  it("关联请求体有界、坏 JSON 和大小写 UUID 不会落成数据库错误", async () => {
+    const tooLarge = await request("reviewerA", "/api/account-links", { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": "20000" }, body: "{}" });
+    expect(tooLarge.response.status).toBe(413);
+    const badJson = await request("reviewerA", "/api/account-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{bad" });
+    expect(badJson.response.status).toBe(400);
+    const unknownField = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ contactId: "00000000-0000-4000-8000-000000000001" }) });
+    expect(unknownField.response.status).toBe(422);
   }, 30_000);
 
   it("来源关联许可、VIEWER 权限和审核理由隔离有效", async () => {

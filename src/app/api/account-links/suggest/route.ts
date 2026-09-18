@@ -3,7 +3,7 @@ import { forbidden, getCurrentUser, isSameOrigin, unauthorized } from "@/lib/aut
 import { canMaintain } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { accountLinkSuggestionSchema } from "@/lib/validation";
-import { accountLinkDto, suggestAccountLinksForContact } from "@/lib/account-link-service";
+import { accountLinkDto, evaluateAccountLink, suggestAccountLinksForContact } from "@/lib/account-link-service";
 import { accountLinkErrorResponse, readAccountLinkJson } from "@/lib/account-link-http";
 
 export const runtime = "nodejs";
@@ -15,7 +15,8 @@ export async function POST(request: Request) {
   try {
     const parsed = accountLinkSuggestionSchema.safeParse(await readAccountLinkJson(request));
     if (!parsed.success) return NextResponse.json({ error: "VALIDATION_ERROR", message: "联系项候选字段格式错误" }, { status: 422 });
-    const items = await suggestAccountLinksForContact(prisma, user.id, parsed.data.contactId);
-    return NextResponse.json({ items: items.map((item) => accountLinkDto(item, user.role)) }, { status: 201 });
+    const result = await suggestAccountLinksForContact(prisma, user.id, parsed.data.contactId, parsed.data);
+    const items = await Promise.all(result.items.map(async (item) => accountLinkDto(item, user.role, await evaluateAccountLink(prisma, item.id))));
+    return NextResponse.json({ items, nextCursor: result.nextCursor, hasMore: result.hasMore }, { status: 201 });
   } catch (error) { return accountLinkErrorResponse(error); }
 }

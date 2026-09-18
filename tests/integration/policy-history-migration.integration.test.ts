@@ -13,6 +13,7 @@ const migrations = [
   "20260918180000_account_workspace/migration.sql",
   "20260918190000_account_workspace_version/migration.sql",
   "20260918200000_account_links/migration.sql",
+  "20260918210000_account_link_evidence_history/migration.sql",
 ].map((relative) => readFileSync(path.join(process.cwd(), "prisma/migrations", relative), "utf8"));
 const schemaName = `policy_migration_${database.runId}_${randomUUID().replaceAll("-", "")}`;
 const sourceId = randomUUID();
@@ -95,5 +96,7 @@ describe("R04 policy snapshot incremental migration", () => {
       [accountId],
     );
     expect(workspace.rows).toEqual([{ workspaceVersion: 1, status: "NOT_CONTACTED", note: "" }]);
+    const linkTables = await client!.query(`SELECT to_regclass('"AccountLinkEvidence"') AS evidence, to_regclass('"AccountLinkDecision"') AS decisions`);
+    expect(linkTables.rows).toEqual([{ evidence: "AccountLinkEvidence", decisions: "AccountLinkDecision" }]);
   });
 });
