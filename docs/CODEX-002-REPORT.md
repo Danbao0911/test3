@@ -1,6 +1,6 @@
 # CODEX-002 · 商务联系候选、证据核验与账号工作台
 
-最新 T08 前置研究及平台能力边界见 [CODEX-002-T08-REPORT.md](./CODEX-002-T08-REPORT.md)；实现 SHA 为 `d97a489582395a32b7cb4839f280c44666e78893`，对应隔离 [Push CI 35343142423](https://github.com/Danbao0911/test3/actions/runs/35343142423) 和 [PR CI 35343146237](https://github.com/Danbao0911/test3/actions/runs/35343146237)。平台许可与真实调用阻塞见 [SOURCE_REGISTER.md](./SOURCE_REGISTER.md)。真实平台调用继续关闭，T07-R1 剩余生命周期验收仍需完成。
+最新 T08 前置研究及 T09 小红书/抖音授权边界见 [CODEX-002-T08-REPORT.md](./CODEX-002-T08-REPORT.md) 和 [CODEX-002-T09-REPORT.md](./CODEX-002-T09-REPORT.md)；T09 实现 SHA 为 `7ad45a4af14e61d43d55551227b680c011f05444`，对应隔离 [Push CI 35351375104](https://github.com/Danbao0911/test3/actions/runs/35351375104) 和 [PR CI 35351379545](https://github.com/Danbao0911/test3/actions/runs/35351379545)。平台许可与真实调用阻塞见 [SOURCE_REGISTER.md](./SOURCE_REGISTER.md)。真实平台调用、生产联系人处理和 T10 的生产运行验收继续关闭。
 
 > R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；T05 账号工作台以 [`CODEX-002-T05-R1-REPORT.md`](./CODEX-002-T05-R1-REPORT.md) 为准；T06 初始交付以 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md) 为准，最新证据/有效性/撤销整改以 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md) 为准；T07 受控导出、删除与审计以 [`CODEX-002-T07-REPORT.md`](./CODEX-002-T07-REPORT.md) 为准。均追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
 
