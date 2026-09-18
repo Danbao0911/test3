@@ -89,5 +89,5 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   await page.getByLabel("收藏").selectOption("YES");
   await page.getByRole("button", { name: "筛选" }).click();
   await expect(page.getByText(accountName)).toBeVisible();
-  await expect(page.getByText("人工联系中")).toBeVisible();
+  await expect(page.getByRole("table").getByText("人工联系中")).toBeVisible();
 });
