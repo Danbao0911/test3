@@ -57,7 +57,7 @@ export async function deleteTarget(db: PrismaClient, actorId: string, input: Del
       if (!account) throw new RetentionError("NOT_FOUND", "账号不存在", 404);
       const expiresAt = new Date(Date.now() + SUPPRESSION_TTL_MS);
       for (const evidence of account.evidence) {
-        if (evidence.contact) await upsertSuppression(tx, actorId, { normalizedValue: evidence.contact.normalizedValue, type: evidence.contact.type, accountId: account.id, contactId: evidence.contact.id, reasonCode: "USER_REQUEST", basis: input.reason, expiresAt });
+        if (evidence.contact) await upsertSuppression(tx, actorId, { normalizedValue: evidence.contact.normalizedValue, type: evidence.contact.type, accountId: account.id, reasonCode: "USER_REQUEST", basis: input.reason, expiresAt });
       }
       const request = await tx.deletionRequest.create({ data: { targetHash: suppressionFingerprint("ACCOUNT_ID", account.id), targetType: "ACCOUNT", accountId: account.id, reason: input.reason, requestedById: actorId, completedById: actorId } });
       await deleteExportArtifactsForAccounts(tx, [account.id]);
@@ -68,15 +68,15 @@ export async function deleteTarget(db: PrismaClient, actorId: string, input: Del
     }
     if (!input.contactId) throw new RetentionError("VALIDATION_ERROR", "必须选择删除目标");
     await tx.$queryRaw`SELECT "id" FROM "ContactPoint" WHERE "id" = ${input.contactId}::uuid FOR UPDATE`;
-    const contact = await tx.contactPoint.findUnique({ where: { id: input.contactId }, include: { evidence: { select: { accountId: true } } } });
+    const contact = await tx.contactPoint.findUnique({ where: { id: input.contactId }, include: { evidence: { select: { id: true, accountId: true } } } });
     if (!contact) throw new RetentionError("NOT_FOUND", "联系项不存在", 404);
     const expiresAt = new Date(Date.now() + SUPPRESSION_TTL_MS);
-    await upsertSuppression(tx, actorId, { normalizedValue: contact.normalizedValue, type: contact.type, accountId: contact.evidence.accountId, contactId: contact.id, reasonCode: "USER_REQUEST", basis: input.reason, expiresAt });
+    await upsertSuppression(tx, actorId, { normalizedValue: contact.normalizedValue, type: contact.type, accountId: contact.evidence.accountId, reasonCode: "USER_REQUEST", basis: input.reason, expiresAt });
     const request = await tx.deletionRequest.create({ data: { targetHash: suppressionFingerprint("CONTACT_ID", contact.id), targetType: "CONTACT", contactId: contact.id, reason: input.reason, requestedById: actorId, completedById: actorId } });
     await deleteExportArtifactsForAccounts(tx, [contact.evidence.accountId]);
     await tx.auditEvent.create({ data: { actorId, action: "CONTACT_DELETED", targetId: contact.id } });
     await tx.auditEvent.create({ data: { actorId, action: "DELETION_COMPLETED", targetId: request.id } });
-    await tx.contactPoint.delete({ where: { id: contact.id } });
+    await tx.evidence.delete({ where: { id: contact.evidence.id } });
     return { id: contact.id, targetType: "CONTACT", requestId: request.id };
   });
 }
