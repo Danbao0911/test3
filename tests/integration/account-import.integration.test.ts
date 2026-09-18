@@ -150,6 +150,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     const throttleKey = createHash("sha256").update(adminEmail.toLowerCase()).digest("hex");
     if (userId) {
+      await prisma.deletionRequest.deleteMany({ where: { OR: [{ requestedById: userId }, { completedById: userId }] } });
       await prisma.session.deleteMany({ where: { userId } });
       await prisma.user.deleteMany({ where: { id: userId } });
     }

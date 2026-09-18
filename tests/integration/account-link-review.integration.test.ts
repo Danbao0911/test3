@@ -138,6 +138,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     if (createdSourceIds.length) await prisma.sourcePolicySnapshot.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });
     if (createdUserIds.length) await prisma.auditEvent.deleteMany({ where: { actorId: { in: createdUserIds } } });
+    if (createdUserIds.length) await prisma.deletionRequest.deleteMany({ where: { OR: [{ requestedById: { in: createdUserIds } }, { completedById: { in: createdUserIds } }] } });
     if (createdUserIds.length) await prisma.session.deleteMany({ where: { userId: { in: createdUserIds } } });
     if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     await prisma.$disconnect();
