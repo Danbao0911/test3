@@ -4,6 +4,10 @@
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
+## 后续 T06 状态
+
+T06 去重与跨账号关联审核已追加到同一 PR，最终 head 为 `62bd167636aa213cdedec2fb6c2ac662ea1034cb`；修改位置、迁移影响、真实 HTTP/E2E 映射和 CI 统计见 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md)。成功 PR CI 为 [35318758595](https://github.com/Danbao0911/test3/actions/runs/35318758595)：96 单元、45 集成、7 E2E 全部通过；Push CI 的 verify 通过，但其独立 e2e 受到既有 T05 筛选用例的非确定性失败影响，详见 T06 报告。
+
 ## 已实现
 
 - ADMIN、REVIEWER、VIEWER：来源策略仅管理员可改；审核员可录入/提取/核验；只读成员不能写入，联系列表和详情均使用白名单 DTO，隐藏原值、规范值、证据正文、证据地址、字段位置、审核原因。

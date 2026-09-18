@@ -197,6 +197,10 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const sourceId = await createSource();
     const left = await createAccount(sourceId, "permissions-left");
     const right = await createAccount(sourceId, "permissions-right");
+    const crossPlatform = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "YOUTUBE", nativeId: "t06-permissions-youtube", displayName: "T06 跨平台账号", profileUrl: "https://example.com/demo/youtube/t06-permissions-youtube", organization: "T06 测试机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: "https://example.com/demo/source/t06-permissions-youtube" }) });
+    expect(crossPlatform.response.status).toBe(201);
+    const crossPlatformId = crossPlatform.data.item!.id as string;
+    createdAccountIds.push(crossPlatformId);
     const created = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
     expect(created.response.status, `${JSON.stringify(created.data)}\n${serverOutput.join("").slice(-4_000)}`).toBe(201);
     const linkId = created.data.item!.id as string;
@@ -210,5 +214,8 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const blocked = await request("reviewerB", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
     expect(blocked.response.status).toBe(403);
     expect(blocked.data.error).toBe("SOURCE_RELATE_NOT_ALLOWED");
+    const blockedCrossPlatform = await request("reviewerB", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: crossPlatformId, sourceId, basis: "MANUAL" }) });
+    expect(blockedCrossPlatform.response.status).toBe(403);
+    expect(blockedCrossPlatform.data.error).toBe("SOURCE_RELATE_NOT_ALLOWED");
   }, 30_000);
 });
