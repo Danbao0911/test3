@@ -126,6 +126,7 @@ async function fixture() {
       status: "APPROVED",
       ownershipConfirmed: true,
       businessConfirmed: true,
+      reviewedAt: new Date(),
       expiresAt: new Date(Date.now() + 86_400_000),
     } },
   }, include: { contact: true } });
