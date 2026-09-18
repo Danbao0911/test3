@@ -71,7 +71,10 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   await page.getByLabel("公开服务地区（可选）").fill("上海");
   await page.getByLabel("数据来源").selectOption(sourceId!);
   await page.getByLabel("来源页面 HTTPS 链接").fill(`https://example.com/demo/source/t05-${suffix}`);
+  const createAccountResponse = page.waitForResponse((response) => response.url().endsWith("/api/accounts") && response.request().method() === "POST");
   await page.getByRole("button", { name: "保存账号" }).click();
+  const createdAccountResponse = await createAccountResponse;
+  if (!createdAccountResponse.ok()) throw new Error(`账号创建 API ${createdAccountResponse.status()}：${JSON.stringify(await createdAccountResponse.json())}`);
   await expect(page).toHaveURL(/\/accounts\/[0-9a-f-]{36}$/);
   await expect(page.getByText("收藏与人工跟进")).toBeVisible();
   await page.getByRole("button", { name: "收藏账号" }).click();
