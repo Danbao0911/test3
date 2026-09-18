@@ -22,6 +22,7 @@ const users = {
 };
 const cookies = new Map<keyof typeof users, string>();
 let server: ChildProcess | undefined;
+const serverOutput: string[] = [];
 let databaseReady = false;
 
 type ApiData = { item?: Record<string, unknown>; items?: Array<Record<string, unknown>>; total?: number; favorite?: boolean; error?: string; message?: string; ids?: string[]; createdCount?: number; [key: string]: unknown };
@@ -52,7 +53,19 @@ async function waitForHealth() {
     try { if ((await fetch(`${baseUrl}/api/health`)).ok) return; } catch { /* server is still starting */ }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error("T05-R1 专用 HTTP 服务未就绪");
+  throw new Error(`T05-R1 专用 HTTP 服务未就绪：${serverOutput.join("").slice(-8_000)}`);
+}
+
+async function stopTestServer(child: ChildProcess | undefined) {
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  try {
+    if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGTERM");
+    else child.kill("SIGTERM");
+  } catch {
+    // The process may have exited between the check and the signal.
+  }
+  await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 5_000))]);
 }
 
 async function login(user: UserKey) {
@@ -99,15 +112,17 @@ describe("CODEX-002-T05-R1 real multi-user HTTP contract", () => {
       cwd: process.cwd(),
       env: { ...process.env, APP_MODE: "test", APP_ORIGIN: baseUrl, DATABASE_URL: database.url, TEST_DATABASE_URL: database.url, TEST_DATABASE_NAME: database.databaseName, TEST_DATABASE_MODE: "isolated", TEST_RUN_ID: database.runId, AUTH_COOKIE_NAME: "test3_session" },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
+    server.stdout?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
+    server.stderr?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
     await waitForHealth();
     await Promise.all((Object.keys(users) as UserKey[]).map(login));
   }, 120_000);
 
   afterAll(async () => {
     if (!databaseReady) { await prisma.$disconnect(); return; }
-    if (server && server.exitCode === null) server.kill("SIGTERM");
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await stopTestServer(server);
     if (createdAccountIds.length) await prisma.account.deleteMany({ where: { id: { in: createdAccountIds } } });
     if (createdSourceIds.length) await prisma.sourcePolicySnapshot.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (createdSourceIds.length) await prisma.source.deleteMany({ where: { id: { in: createdSourceIds } } });

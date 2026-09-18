@@ -26,6 +26,18 @@ let identityANative = "";
 let identityBProfileUrl = "";
 let databaseReady = false;
 
+async function stopTestServer(child: ChildProcess | undefined) {
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  try {
+    if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGTERM");
+    else child.kill("SIGTERM");
+  } catch {
+    // The process may have exited between the check and the signal.
+  }
+  await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 5_000))]);
+}
+
 type ApiItem = { id: string; status?: string; rows?: unknown[]; [key: string]: unknown };
 type ApiError = { rowNumber: number; errorCode?: string; errorMessage?: string };
 type ApiData = { item: ApiItem; items: ApiItem[]; errors: ApiError[]; total: number; page: number; error: string; message: string; [key: string]: unknown };
@@ -118,6 +130,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
       cwd: process.cwd(),
       env: { ...process.env, APP_MODE: "test", APP_ORIGIN: baseUrl, DATABASE_URL: database.url, TEST_DATABASE_URL: database.url, TEST_DATABASE_NAME: database.databaseName, TEST_DATABASE_MODE: "isolated", TEST_RUN_ID: runId, AUTH_COOKIE_NAME: "test3_session" },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     server.stdout?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
     server.stderr?.on("data", (chunk: Buffer) => { serverOutput.push(chunk.toString()); });
@@ -129,8 +142,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
 
   afterAll(async () => {
     if (!databaseReady) { await prisma.$disconnect(); return; }
-    if (server && server.exitCode === null) server.kill("SIGTERM");
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await stopTestServer(server);
     if (createdBatchIds.length) await prisma.importBatch.deleteMany({ where: { id: { in: createdBatchIds } } });
     if (createdSourceIds.length) await prisma.account.deleteMany({ where: { sourceId: { in: createdSourceIds } } });
     if (userId) await prisma.auditEvent.deleteMany({ where: { actorId: userId } });
