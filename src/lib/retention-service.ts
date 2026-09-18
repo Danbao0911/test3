@@ -1,8 +1,8 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { suppressionFingerprint, suppressionFingerprintCandidates, stableIdentityFingerprints, ACCOUNT_IDENTITY_FINGERPRINT_VERSION, SUPPRESSION_FINGERPRINT_KEY_ID, SUPPRESSION_FINGERPRINT_VERSION } from "./data-protection";
-import { deletionRuleMatchesAccount } from "./identity-rules";
+import { suppressionFingerprint, suppressionFingerprintCandidates, suppressionFingerprintForKey, suppressionKeyAvailable, stableIdentityFingerprints, ACCOUNT_IDENTITY_FINGERPRINT_VERSION, SUPPRESSION_FINGERPRINT_KEY_ID, SUPPRESSION_FINGERPRINT_VERSION } from "./data-protection";
+import { accountIdentityLockKeys, deletionRuleMatchesAccount } from "./identity-rules";
 import { clearAccountDependencies, clearContactDependencies } from "./retention-dependencies";
-import { lockContactValueKeys, lockRows } from "./resource-locks";
+import { lockAdvisoryKeys, lockContactValueKeys, lockRows } from "./resource-locks";
 import type { DeletionRequestInput, SuppressionInput } from "./validation";
 
 const SUPPRESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -36,12 +36,21 @@ async function upsertSuppression(tx: Prisma.TransactionClient, actorId: string, 
 
 async function suppressAllCopies(tx: Prisma.TransactionClient, actorId: string, input: { normalizedValue: string; type: string; accountId?: string; contactId?: string; reasonCode: string; basis: string; expiresAt: Date }, now: Date) {
   const suppression = await upsertSuppression(tx, actorId, input);
-  const contacts = await tx.contactPoint.findMany({ where: { type: input.type as never, normalizedValue: input.normalizedValue }, select: { id: true, status: true, version: true } });
-  await lockRows(tx, "ContactPoint", contacts.map((item) => item.id));
+  const discovered = await tx.contactPoint.findMany({ where: { type: input.type as never, normalizedValue: input.normalizedValue }, select: { id: true } });
+  await lockRows(tx, "ContactPoint", discovered.map((item) => item.id));
+  // The discovery query is intentionally not trusted after waiting for row
+  // locks: review may have committed a new version while suppression waited.
+  const contacts = discovered.length ? await tx.contactPoint.findMany({ where: { id: { in: discovered.map((item) => item.id) } }, select: { id: true, status: true, suppressed: true, version: true } }) : [];
   let changed = suppression.changed;
   for (const item of contacts) {
+    if (item.status === "INVALID" && item.suppressed) {
+      continue;
+    }
     if (item.status === "INVALID") {
-      await tx.contactPoint.update({ where: { id: item.id }, data: { suppressed: true } });
+      const version = item.version + 1;
+      await tx.contactPoint.update({ where: { id: item.id }, data: { suppressed: true, reviewedAt: now, version } });
+      await tx.reviewDecision.create({ data: { contactId: item.id, reviewerId: actorId, status: "INVALID", reason: input.basis, ownershipConfirmed: false, businessConfirmed: false, version } });
+      changed = true;
       continue;
     }
     const version = item.version + 1;
@@ -76,6 +85,8 @@ export async function deleteTarget(db: PrismaClient, actorId: string, input: Del
     if (input.accountId) {
       const initial = await tx.account.findUnique({ where: { id: input.accountId }, include: { evidence: { include: { contact: true } } } });
       if (!initial) throw new RetentionError("NOT_FOUND", "账号不存在", 404);
+      await lockRows(tx, "Source", [initial.sourceId]);
+      await lockAdvisoryKeys(tx, accountIdentityLockKeys({ platform: initial.platform, nativeId: initial.nativeId, normalizedProfileUrl: initial.normalizedProfileUrl }));
       await lockContactValueKeys(tx, initial.evidence.flatMap((evidence) => evidence.contact ? [{ type: evidence.contact.type, normalizedValue: evidence.contact.normalizedValue }] : []));
       await lockRows(tx, "Account", [input.accountId]);
       const account = await tx.account.findUnique({ where: { id: input.accountId }, include: { evidence: { include: { contact: true } } } });
@@ -118,38 +129,100 @@ export async function listDeletionRequests(db: PrismaClient) {
 
 export type ReplayOptions = { dryRun?: boolean; now?: Date; batchSize?: number; accountCursor?: string; contactCursor?: string; accountDone?: boolean; contactDone?: boolean };
 
+type ReplayRule = {
+  id: string;
+  targetType: string;
+  scope: string;
+  identityNativeFingerprint: string | null;
+  identityProfileFingerprint: string | null;
+  identityVersion: number;
+  identityKeyId: string;
+  identityExpiresAt: Date | null;
+};
+
+function replayRuleSupported(rule: ReplayRule) {
+  return rule.targetType === "ACCOUNT" && rule.scope === "ACCOUNT_REIMPORT_BLOCK" &&
+    rule.identityVersion === ACCOUNT_IDENTITY_FINGERPRINT_VERSION && Boolean(rule.identityKeyId) &&
+    suppressionKeyAvailable(rule.identityKeyId) &&
+    Boolean(rule.identityNativeFingerprint || rule.identityProfileFingerprint);
+}
+
+type ReplaySuppression = { fingerprint: string; fingerprintVersion: number; fingerprintKeyId: string; scope: string; contactType: string | null };
+
+function replaySuppressionSupported(suppression: ReplaySuppression) {
+  return suppression.scope === "CONTACT_VALUE_GLOBAL" && Boolean(suppression.contactType) && Boolean(suppression.fingerprint) &&
+    ((suppression.fingerprintVersion === SUPPRESSION_FINGERPRINT_VERSION || suppression.fingerprintVersion === 1) && suppressionKeyAvailable(suppression.fingerprintKeyId));
+}
+
+function replaySuppressionMatches(contact: { type: string; normalizedValue: string }, suppression: ReplaySuppression) {
+  if (!replaySuppressionSupported(suppression) || suppression.contactType !== contact.type) return false;
+  const expected = suppressionFingerprintForKey(contact.type, contact.normalizedValue, suppression.fingerprintKeyId, suppression.fingerprintVersion === 1);
+  return expected === suppression.fingerprint;
+}
+
 /**
- * Replays only scoped, versioned rules in an isolated restore database. Legacy
- * UUID-only rules are reported as unknown instead of guessing a replacement.
+ * Replays active rules only after loading the complete applicable rule set.
+ * Unknown versions, incomplete scopes and unavailable key ids remain blocked;
+ * they are never filtered out before enforcement classification.
  */
 export async function replayDeletionRules(db: PrismaClient, actorId: string, options: ReplayOptions = {}) {
   const now = options.now ?? new Date();
   const batchSize = Math.min(Math.max(options.batchSize ?? 100, 1), 1_000);
-  const rules = await db.deletionRequest.findMany({ where: { scope: "ACCOUNT_REIMPORT_BLOCK", identityVersion: ACCOUNT_IDENTITY_FINGERPRINT_VERSION, OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: now } }] }, select: { id: true, identityNativeFingerprint: true, identityProfileFingerprint: true, identityVersion: true, identityKeyId: true } });
-  const legacyUnknown = await db.deletionRequest.count({ where: { scope: "LEGACY_UNKNOWN" } });
-  const blockedRules = rules.filter((rule) => rule.identityKeyId !== SUPPRESSION_FINGERPRINT_KEY_ID || rule.identityVersion !== ACCOUNT_IDENTITY_FINGERPRINT_VERSION);
+  const rules = await db.deletionRequest.findMany({
+    where: {
+      OR: [
+        { scope: "ACCOUNT_REIMPORT_BLOCK" },
+        { scope: "LEGACY_UNKNOWN", targetType: "ACCOUNT" },
+      ],
+      AND: [{ OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: now } }] }],
+    },
+    select: { id: true, targetType: true, scope: true, identityNativeFingerprint: true, identityProfileFingerprint: true, identityVersion: true, identityKeyId: true, identityExpiresAt: true },
+  });
+  const legacyUnknown = rules.filter((rule) => rule.scope === "LEGACY_UNKNOWN").length;
+  const blockedRules = rules.filter((rule) => !replayRuleSupported(rule));
   const accounts = options.accountDone ? [] : await db.account.findMany({ where: options.accountCursor ? { id: { gt: options.accountCursor } } : {}, take: batchSize + 1, orderBy: { id: "asc" }, select: { id: true, platform: true, nativeId: true, normalizedProfileUrl: true, evidence: { select: { id: true } } } });
   const accountPage = accounts.slice(0, batchSize);
   const accountHasMore = accounts.length > batchSize;
-  const validRules = rules.filter((rule) => !blockedRules.includes(rule));
+  const validRules = rules.filter(replayRuleSupported);
   const matched = accountPage.filter((account) => validRules.some((rule) => deletionRuleMatchesAccount(account, rule)));
-  const suppressions = await db.contactSuppression.findMany({ where: { expiresAt: { gt: now } }, select: { fingerprint: true, fingerprintVersion: true, fingerprintKeyId: true } });
-  const supportedSuppression = (suppression: { fingerprintVersion: number; fingerprintKeyId: string }) => (suppression.fingerprintVersion === SUPPRESSION_FINGERPRINT_VERSION && suppression.fingerprintKeyId === SUPPRESSION_FINGERPRINT_KEY_ID) || (suppression.fingerprintVersion === 1 && suppression.fingerprintKeyId === "legacy-v1");
-  const blockedSuppressions = suppressions.filter((suppression) => !supportedSuppression(suppression));
-  const restoredContacts = options.contactDone ? [] : await db.contactPoint.findMany({ where: options.contactCursor ? { id: { gt: options.contactCursor } } : {}, take: batchSize + 1, orderBy: { id: "asc" }, select: { id: true, type: true, normalizedValue: true, evidence: { select: { id: true, accountId: true } } } });
+  const suppressions = await db.contactSuppression.findMany({ where: { expiresAt: { gt: now } }, select: { fingerprint: true, fingerprintVersion: true, fingerprintKeyId: true, scope: true, contactType: true } });
+  const blockedSuppressions = suppressions.filter((suppression) => !replaySuppressionSupported(suppression));
+  const restoredContacts = options.contactDone ? [] : await db.contactPoint.findMany({ where: options.contactCursor ? { id: { gt: options.contactCursor } } : {}, take: batchSize + 1, orderBy: { id: "asc" }, select: { id: true, type: true, normalizedValue: true, evidence: { select: { id: true, accountId: true, sourceId: true } } } });
   const contactPage = restoredContacts.slice(0, batchSize);
   const contactHasMore = restoredContacts.length > batchSize;
-  const matchedContacts = contactPage.filter((contact) => suppressionFingerprintCandidates(contact.type, contact.normalizedValue).some((fingerprint) => suppressions.some((suppression) => suppression.fingerprint === fingerprint && supportedSuppression(suppression))));
-  const next = { accountCursor: accountPage.length === batchSize ? accountPage.at(-1)?.id ?? null : null, accountDone: options.accountDone === true || !accountHasMore, contactCursor: contactPage.length === batchSize ? contactPage.at(-1)?.id ?? null : null, contactDone: options.contactDone === true || !contactHasMore };
-  const resultBase = { scanned: { accounts: accountPage.length, contacts: contactPage.length }, matched: { accounts: matched.length, contacts: matchedContacts.length }, legacyUnknown, rules: rules.length, blockedRules: blockedRules.length + blockedSuppressions.length, hasMore: (!next.accountDone && accountHasMore) || (!next.contactDone && contactHasMore), next };
+  const matchedContacts = contactPage.filter((contact) => suppressions.some((suppression) => replaySuppressionMatches(contact, suppression)));
+  const next = {
+    accountCursor: accountPage.length === batchSize ? accountPage.at(-1)?.id ?? null : null,
+    accountDone: options.accountDone === true || !accountHasMore,
+    contactCursor: contactPage.length === batchSize ? contactPage.at(-1)?.id ?? null : null,
+    contactDone: options.contactDone === true || !contactHasMore,
+  };
+  const hasMore = (!next.accountDone && accountHasMore) || (!next.contactDone && contactHasMore);
+  const blockedRuleCount = blockedRules.length + blockedSuppressions.length;
+  const enforcementComplete = blockedRuleCount === 0 && legacyUnknown === 0;
+  const resultBase = { scanned: { accounts: accountPage.length, contacts: contactPage.length }, matched: { accounts: matched.length, contacts: matchedContacts.length }, legacyUnknown, rules: rules.length, blockedRules: blockedRuleCount, hasMore, scanComplete: !hasMore, enforcementComplete, complete: !hasMore && enforcementComplete, next };
   if (options.dryRun) return { dryRun: true, accounts: matched.length, contacts: matchedContacts.length, deleted: { accounts: 0, contacts: 0 }, ...resultBase };
   let removedAccounts = 0;
   for (const account of matched) {
     await db.$transaction(async (tx) => {
-      const current = await tx.account.findUnique({ where: { id: account.id }, include: { evidence: { include: { contact: true } } } });
+      const discovered = await tx.account.findUnique({
+        where: { id: account.id },
+        select: {
+          id: true,
+          platform: true,
+          nativeId: true,
+          normalizedProfileUrl: true,
+          sourceId: true,
+          evidence: { select: { contact: { select: { type: true, normalizedValue: true } } } },
+        },
+      });
+      if (!discovered) return;
+      await lockRows(tx, "Source", [discovered.sourceId]);
+      await lockAdvisoryKeys(tx, accountIdentityLockKeys(discovered));
+      await lockContactValueKeys(tx, discovered.evidence.flatMap((evidence) => evidence.contact ? [{ type: evidence.contact.type, normalizedValue: evidence.contact.normalizedValue }] : []));
+      await lockRows(tx, "Account", [discovered.id]);
+      const current = await tx.account.findUnique({ where: { id: discovered.id }, include: { evidence: { include: { contact: true } } } });
       if (!current) return;
-      await lockContactValueKeys(tx, current.evidence.flatMap((evidence) => evidence.contact ? [{ type: evidence.contact.type, normalizedValue: evidence.contact.normalizedValue }] : []));
-      await lockRows(tx, "Account", [current.id]);
       for (const evidence of current.evidence) if (evidence.contact) await suppressAllCopies(tx, actorId, { normalizedValue: evidence.contact.normalizedValue, type: evidence.contact.type, accountId: current.id, reasonCode: "USER_REQUEST", basis: "恢复重放删除规则", expiresAt: new Date(now.getTime() + SUPPRESSION_TTL_MS) }, now);
       await clearAccountDependencies(tx, current.id, current.evidence.map((evidence) => evidence.id));
       await tx.account.delete({ where: { id: current.id } });
@@ -160,11 +233,14 @@ export async function replayDeletionRules(db: PrismaClient, actorId: string, opt
   let removedContacts = 0;
   for (const contact of matchedContacts) {
     await db.$transaction(async (tx) => {
-      const current = await tx.contactPoint.findUnique({ where: { id: contact.id }, include: { evidence: { select: { id: true, accountId: true } } } });
+      const discovered = await tx.contactPoint.findUnique({ where: { id: contact.id }, include: { evidence: { select: { id: true, accountId: true, sourceId: true } } } });
+      if (!discovered) return;
+      await lockRows(tx, "Source", [discovered.evidence.sourceId]);
+      await lockContactValueKeys(tx, [{ type: discovered.type, normalizedValue: discovered.normalizedValue }]);
+      await lockRows(tx, "Account", [discovered.evidence.accountId]);
+      await lockRows(tx, "ContactPoint", [discovered.id]);
+      const current = await tx.contactPoint.findUnique({ where: { id: discovered.id }, include: { evidence: { select: { id: true, accountId: true } } } });
       if (!current) return;
-      await lockContactValueKeys(tx, [{ type: current.type, normalizedValue: current.normalizedValue }]);
-      await lockRows(tx, "Account", [current.evidence.accountId]);
-      await lockRows(tx, "ContactPoint", [current.id]);
       await clearContactDependencies(tx, current.id, current.evidence.id, current.evidence.accountId);
       await tx.auditEvent.create({ data: { actorId, action: "CONTACT_DELETION_REPLAYED", targetId: current.id } });
       removedContacts += 1;

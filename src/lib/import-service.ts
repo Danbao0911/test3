@@ -5,7 +5,7 @@ import type { PrismaClient, Source } from "../generated/prisma/client";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "./account-normalizer";
 import { accountInputSchema, type AccountInput, validationMessage } from "./validation";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
-import { activeDeletionIdentityWhere } from "./identity-rules";
+import { accountIdentityLockKeys, activeDeletionIdentityWhere } from "./identity-rules";
 
 export const IMPORT_FORMAT_VERSION = "v1";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -178,13 +178,6 @@ function sourceForWrite(source: Source | null) {
   return source;
 }
 
-function accountLockKeys(input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
-  return [
-    `test3:account:${input.platform}:url:${normalizedProfileUrl}`,
-    ...(input.nativeId ? [`test3:account:${input.platform}:native:${input.nativeId}`] : []),
-  ];
-}
-
 async function findExistingAccount(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
   const byNativeId = input.nativeId ? await tx.account.findUnique({ where: { platform_nativeId: { platform: input.platform, nativeId: input.nativeId } } }) : null;
   const byUrl = await tx.account.findUnique({ where: { platform_normalizedProfileUrl: { platform: input.platform, normalizedProfileUrl } } });
@@ -206,7 +199,7 @@ export async function createAccountWithRules(
     try {
       return await client.$transaction(async (tx) => {
         const source = sourceForWrite(await lockSource(tx, input.sourceId));
-        await lockKeys(tx, accountLockKeys(input, normalizedProfileUrl));
+        await lockKeys(tx, accountIdentityLockKeys({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }));
         if (await identityDeletionBlocked(tx, input, normalizedProfileUrl)) throw new SourceNotAllowedError("IDENTITY_DELETION_BLOCKED", "该平台身份处于删除后的重新录入阻止期");
         const { byNativeId, byUrl } = await findExistingAccount(tx, input, normalizedProfileUrl);
         if (byNativeId && byUrl && byNativeId.id !== byUrl.id) return { kind: "conflict" };
@@ -262,7 +255,7 @@ export async function executeImport(
         }
         const source = sourceForWrite(await lockSource(tx, options.sourceId));
         const validRows = options.preparedRows.filter((row) => row.input && row.normalizedProfileUrl && row.normalizedSourceUrl);
-        await lockKeys(tx, validRows.flatMap((row) => accountLockKeys(row.input!, row.normalizedProfileUrl!)));
+        await lockKeys(tx, validRows.flatMap((row) => accountIdentityLockKeys({ platform: row.input!.platform, nativeId: row.input!.nativeId, normalizedProfileUrl: row.normalizedProfileUrl! })));
         const createdBatch = await tx.importBatch.create({
           data: { createdById: options.userId, sourceId: options.sourceId, idempotencyKey: options.idempotencyKey, payloadHash: options.payloadHash, totalRows: options.preparedRows.length },
         });

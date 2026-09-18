@@ -125,8 +125,21 @@ model LoginThrottle {
   inFlightCount   Int      @default(0)
   windowStartedAt DateTime
   updatedAt       DateTime @updatedAt
+  reservations    LoginThrottleReservation[]
 
   @@index([updatedAt])
+}
+
+model LoginThrottleReservation {
+  id              String        @id @default(uuid()) @db.Uuid
+  keyHash         String        @db.VarChar(64)
+  windowStartedAt DateTime
+  expiresAt       DateTime
+  releasedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  throttle        LoginThrottle @relation(fields: [keyHash], references: [keyHash], onDelete: Cascade)
+
+  @@index([keyHash, releasedAt, expiresAt])
 }
 
 model Source {

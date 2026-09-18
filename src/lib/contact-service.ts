@@ -77,7 +77,10 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
     const initial = await tx.contactPoint.findUnique({ where: { id: contactId }, include: { evidence: true } });
     if (!initial) throw new ContactError("NOT_FOUND", "联系项不存在", 404);
     const { source } = await lockSource(tx, initial.evidence.sourceId);
-    if (input.status === "APPROVED") await lockContactValueKeys(tx, [{ type: initial.type, normalizedValue: initial.normalizedValue }]);
+    // All state transitions share the suppression fingerprint lock. This keeps
+    // INVALID/REJECTED review from committing an older version while a global
+    // suppression is waiting on the same contact set.
+    await lockContactValueKeys(tx, [{ type: initial.type, normalizedValue: initial.normalizedValue }]);
     await lockRows(tx, "ContactPoint", [contactId]);
     const current = await tx.contactPoint.findUniqueOrThrow({ where: { id: contactId }, include: { evidence: true } });
     if (current.version !== input.version) throw new ContactError("REVIEW_CONFLICT", "联系项已被其他操作更新，请刷新后再审核", 409);

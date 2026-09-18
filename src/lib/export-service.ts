@@ -234,7 +234,7 @@ export async function runRetentionCleanup(db: PrismaClient, actorId: string, now
       db.exportJob.count({ where: { expiresAt: { lte: now }, ...(options.exportCursor ? { id: { gt: options.exportCursor } } : {}) } }),
       db.contactSuppression.count({ where: { expiresAt: { lte: now }, ...(options.suppressionCursor ? { id: { gt: options.suppressionCursor } } : {}) } }),
     ]);
-    return { contacts, exports, suppressions, dryRun: true, next: null };
+    return { contacts, exports, suppressions, dryRun: true, next: { contactCursor: null, contactDone: true, exportCursor: null, exportDone: true, suppressionCursor: null, suppressionDone: true }, complete: true };
   }
   return db.$transaction(async (tx) => {
     const expiredContacts = options.contactDone ? [] : await tx.contactPoint.findMany({ where: { expiresAt: { lte: now }, ...(options.contactCursor ? { id: { gt: options.contactCursor } } : {}) }, orderBy: { id: "asc" }, take: batchSize, include: { evidence: { select: { id: true, accountId: true } } } });
@@ -247,7 +247,8 @@ export async function runRetentionCleanup(db: PrismaClient, actorId: string, now
     if (expiredExports.length) await tx.exportJob.deleteMany({ where: { id: { in: expiredExports.map((item) => item.id) } } });
     if (expiredSuppressions.length) await tx.contactSuppression.deleteMany({ where: { id: { in: expiredSuppressions.map((item) => item.id) } } });
     await tx.auditEvent.create({ data: { actorId, action: "RETENTION_CLEANUP", targetId: actorId } });
-    return { contacts: expiredContacts.length, exports: expiredExports.length, suppressions: expiredSuppressions.length, dryRun: false, next: { contactCursor: expiredContacts.length === batchSize ? expiredContacts.at(-1)?.id ?? null : null, contactDone: options.contactDone === true || expiredContacts.length < batchSize, exportCursor: expiredExports.length === batchSize ? expiredExports.at(-1)?.id ?? null : null, exportDone: options.exportDone === true || expiredExports.length < batchSize, suppressionCursor: expiredSuppressions.length === batchSize ? expiredSuppressions.at(-1)?.id ?? null : null, suppressionDone: options.suppressionDone === true || expiredSuppressions.length < batchSize } };
+    const next = { contactCursor: expiredContacts.length === batchSize ? expiredContacts.at(-1)?.id ?? null : null, contactDone: options.contactDone === true || expiredContacts.length < batchSize, exportCursor: expiredExports.length === batchSize ? expiredExports.at(-1)?.id ?? null : null, exportDone: options.exportDone === true || expiredExports.length < batchSize, suppressionCursor: expiredSuppressions.length === batchSize ? expiredSuppressions.at(-1)?.id ?? null : null, suppressionDone: options.suppressionDone === true || expiredSuppressions.length < batchSize };
+    return { contacts: expiredContacts.length, exports: expiredExports.length, suppressions: expiredSuppressions.length, dryRun: false, next, complete: next.contactDone && next.exportDone && next.suppressionDone };
   });
 }
 

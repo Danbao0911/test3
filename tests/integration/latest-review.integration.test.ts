@@ -10,6 +10,11 @@ import { legacySuppressionFingerprint, stableIdentityFingerprints, suppressionFi
 
 const database = parseTestDatabaseConfig();
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: database.url }) });
+const previousSuppressionKeys = process.env.SUPPRESSION_HMAC_KEYS_JSON;
+process.env.SUPPRESSION_HMAC_KEYS_JSON = JSON.stringify({
+  [SUPPRESSION_FINGERPRINT_KEY_ID]: process.env.SUPPRESSION_HMAC_KEY ?? `test3-SUPPRESSION_HMAC_KEY-${database.runId}`,
+  "legacy-v1": `latest-review-old-key-${database.runId}`,
+});
 let databaseReady = false;
 let actorId = "";
 let sourceId = "";
@@ -49,6 +54,8 @@ describe("CODEX-002-LATEST-REVIEW real PostgreSQL replay and identity rules", ()
     if (snapshotId) await prisma.sourcePolicySnapshot.deleteMany({ where: { id: snapshotId } });
     if (sourceId) await prisma.source.deleteMany({ where: { id: sourceId } });
     if (actorId) await prisma.user.deleteMany({ where: { id: actorId } });
+    if (previousSuppressionKeys === undefined) delete process.env.SUPPRESSION_HMAC_KEYS_JSON;
+    else process.env.SUPPRESSION_HMAC_KEYS_JSON = previousSuppressionKeys;
     await prisma.$disconnect();
   }, 30_000);
 
@@ -61,6 +68,7 @@ describe("CODEX-002-LATEST-REVIEW real PostgreSQL replay and identity rules", ()
       const identity = stableIdentityFingerprints(firstAccounts[index]!);
       await prisma.deletionRequest.create({ data: { targetHash: createHash("sha256").update(`latest-account-${index}`).digest("hex"), targetType: "ACCOUNT", accountId: firstAccounts[index]!.id, identityNativeFingerprint: identity.nativeId, identityProfileFingerprint: identity.profileUrl, identityType: "ACCOUNT_PLATFORM_IDENTITY_V2", identityVersion: 2, identityKeyId: SUPPRESSION_FINGERPRINT_KEY_ID, scope: "ACCOUNT_REIMPORT_BLOCK", identityExpiresAt: new Date(Date.now() + 86_400_000), reason: "LATEST replay test", requestedById: actorId, completedById: actorId } });
     }
+    await prisma.deletionRequest.create({ data: { targetHash: createHash("sha256").update("latest-unknown-account-rule").digest("hex"), targetType: "ACCOUNT", accountId: firstAccounts[0]!.id, identityNativeFingerprint: null, identityProfileFingerprint: null, identityType: "ACCOUNT_IDENTITY_UNKNOWN", identityVersion: 99, identityKeyId: "missing-old-key", scope: "ACCOUNT_REIMPORT_BLOCK", identityExpiresAt: new Date(Date.now() + 86_400_000), reason: "LATEST blocked rule test", requestedById: actorId, completedById: actorId } });
 
     const evidenceRows = Array.from({ length: 205 }, (_, index) => ({ id: orderedUuid(3, index), accountId: secondAccounts[index]!.id, sourceId, policyVersion: 1, policySnapshotId: snapshotId, sourceUrl: "https://example.com/latest/evidence", capturedAt: new Date(), fieldLocation: `row-${index}`, excerpt: `latest-${index}@example.com` }));
     const contactRows = evidenceRows.map((evidence, index) => ({ id: orderedUuid(4, index), evidenceId: evidence.id, dedupeKey: createHash("sha256").update(evidence.id).digest("hex"), type: "EMAIL" as const, rawValue: `latest-${index}@example.com`, normalizedValue: `latest-${index}@example.com`, status: "APPROVED" as const, ownershipConfirmed: true, businessConfirmed: true, version: 1, expiresAt: new Date(Date.now() + 86_400_000), reviewedAt: new Date() }));

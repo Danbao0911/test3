@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildCsv, decryptPayload, encryptPayload, stableIdentityFingerprints, suppressionFingerprint } from "../../src/lib/data-protection";
+import { buildCsv, decryptPayload, encryptPayload, stableIdentityFingerprints, suppressionFingerprint, suppressionFingerprintForKey, suppressionKeyAvailable } from "../../src/lib/data-protection";
+import { accountIdentityLockKeys } from "../../src/lib/identity-rules";
+import { decodeMaintenanceCheckpoint, encodeMaintenanceCheckpoint } from "../../src/lib/maintenance-checkpoint";
 import { deletionRequestSchema, exportCreateSchema } from "../../src/lib/validation";
 
 process.env.APP_MODE = "test";
@@ -13,6 +15,45 @@ describe("T07 retention and export guards", () => {
     expect(suppressionFingerprint("PHONE", "person@example.com")).not.toBe(first);
     expect(first).not.toContain("example.com");
     expect(suppressionFingerprint("CONTACT_URL", "https://example.com/Book#A")).not.toBe(suppressionFingerprint("CONTACT_URL", "https://example.com/book#a"));
+  });
+
+  it("requires the real legacy key instead of treating the current key as legacy", () => {
+    const previous = process.env.SUPPRESSION_HMAC_KEYS_JSON;
+    try {
+      process.env.SUPPRESSION_HMAC_KEYS_JSON = JSON.stringify({ "default-v2": "new-key", "legacy-v1": "old-key" });
+      const oldFingerprint = suppressionFingerprintForKey("EMAIL", "legacy@example.com", "legacy-v1", true);
+      expect(suppressionKeyAvailable("legacy-v1")).toBe(true);
+      expect(oldFingerprint).not.toBe(suppressionFingerprint("EMAIL", "legacy@example.com"));
+      process.env.SUPPRESSION_HMAC_KEYS_JSON = JSON.stringify({ "default-v2": "new-key" });
+      expect(suppressionKeyAvailable("legacy-v1")).toBe(false);
+      expect(() => suppressionFingerprintForKey("EMAIL", "legacy@example.com", "legacy-v1", true)).toThrow("不可用");
+    } finally {
+      if (previous === undefined) delete process.env.SUPPRESSION_HMAC_KEYS_JSON;
+      else process.env.SUPPRESSION_HMAC_KEYS_JSON = previous;
+    }
+  });
+
+  it("uses identical database lock keys for native ID and profile deletion races", () => {
+    const first = accountIdentityLockKeys({ platform: "X", nativeId: "native-1", normalizedProfileUrl: "https://example.com/x/one" });
+    const sameIdentity = accountIdentityLockKeys({ platform: "X", nativeId: "native-1", normalizedProfileUrl: "https://example.com/x/one" });
+    const changedProfile = accountIdentityLockKeys({ platform: "X", nativeId: "native-1", normalizedProfileUrl: "https://example.com/x/two" });
+    expect(first).toEqual(sameIdentity);
+    expect(first).not.toEqual(changedProfile);
+    expect(first.every((key) => !key.includes("native-1") && !key.includes("example.com"))).toBe(true);
+  });
+
+  it("signs checkpoints to the operation, database and run identity", () => {
+    const previous = process.env.RETENTION_CHECKPOINT_KEY;
+    process.env.RETENTION_CHECKPOINT_KEY = "checkpoint-test-key";
+    try {
+      const token = encodeMaintenanceCheckpoint({ operation: "replay", database: "test3_ci_r2", runId: "r2", cutoff: "2026-09-18T00:00:00.000Z", cursors: { accountCursor: "00000000-0000-4000-8000-000000000001", accountDone: false } });
+      expect(decodeMaintenanceCheckpoint(token, { operation: "replay", database: "test3_ci_r2", runId: "r2" }).cursors.accountDone).toBe(false);
+      expect(() => decodeMaintenanceCheckpoint(token, { operation: "cleanup", database: "test3_ci_r2", runId: "r2" })).toThrow("目标");
+      expect(() => decodeMaintenanceCheckpoint(`${token.slice(0, -1)}x`, { operation: "replay", database: "test3_ci_r2", runId: "r2" })).toThrow("签名");
+    } finally {
+      if (previous === undefined) delete process.env.RETENTION_CHECKPOINT_KEY;
+      else process.env.RETENTION_CHECKPOINT_KEY = previous;
+    }
   });
 
   it("stores independent account identity rules instead of requiring a composite match", () => {

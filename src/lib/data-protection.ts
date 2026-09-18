@@ -16,6 +16,44 @@ export const SUPPRESSION_FINGERPRINT_VERSION = 2;
 export const SUPPRESSION_FINGERPRINT_KEY_ID = process.env.SUPPRESSION_HMAC_KEY_ID ?? "default-v2";
 export const ACCOUNT_IDENTITY_FINGERPRINT_VERSION = 2;
 
+function configuredSuppressionSecrets() {
+  const configured = new Map<string, string>();
+  const raw = process.env.SUPPRESSION_HMAC_KEYS_JSON;
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+      for (const [keyId, secret] of Object.entries(parsed)) {
+        if (typeof secret !== "string" || !keyId || keyId.length > 80) throw new Error("invalid key entry");
+        configured.set(keyId, secret);
+      }
+    } catch {
+      throw new DataProtectionError("KEY_MISSING", "SUPPRESSION_HMAC_KEYS_JSON 配置无效");
+    }
+  }
+  if (process.env.SUPPRESSION_HMAC_KEY) configured.set(SUPPRESSION_FINGERPRINT_KEY_ID, process.env.SUPPRESSION_HMAC_KEY);
+  return configured;
+}
+
+function suppressionSecretBytes(keyId: string) {
+  const configured = configuredSuppressionSecrets().get(keyId);
+  if (configured) return createHash("sha256").update(configured).digest();
+  if (keyId === SUPPRESSION_FINGERPRINT_KEY_ID && currentRuntimeMode() !== "production") {
+    return createHash("sha256").update(`test3-SUPPRESSION_HMAC_KEY-${process.env.TEST_RUN_ID ?? "local"}`).digest();
+  }
+  throw new DataProtectionError("KEY_MISSING", `抑制指纹密钥 ${keyId} 不可用`);
+}
+
+export function suppressionKeyAvailable(keyId: string) {
+  try {
+    suppressionSecretBytes(keyId);
+    return true;
+  } catch (error) {
+    if (error instanceof DataProtectionError && error.code === "KEY_MISSING") return false;
+    throw error;
+  }
+}
+
 function normalizeSuppressionValue(type: string, value: string) {
   const normalizedType = type.trim().toUpperCase();
   const trimmed = value.trim();
@@ -24,44 +62,62 @@ function normalizeSuppressionValue(type: string, value: string) {
   return normalizedType === "EMAIL" ? trimmed.toLowerCase() : trimmed;
 }
 
-function fingerprintFor(type: string, normalizedValue: string, valueNormalizer: (value: string) => string) {
-  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY"))
+function fingerprintFor(type: string, normalizedValue: string, keyId: string, valueNormalizer: (value: string) => string) {
+  return createHmac("sha256", suppressionSecretBytes(keyId))
     .update(`${type.trim().toUpperCase()}\0${valueNormalizer(normalizedValue)}`)
     .digest("hex");
 }
 
+export function suppressionFingerprintForKey(type: string, normalizedValue: string, keyId: string, legacy = false) {
+  return fingerprintFor(type, normalizedValue, keyId, (value) => legacy ? value.trim().toLowerCase() : normalizeSuppressionValue(type, value));
+}
+
 export function suppressionFingerprint(type: string, normalizedValue: string) {
-  return fingerprintFor(type, normalizedValue, (value) => normalizeSuppressionValue(type, value));
+  return suppressionFingerprintForKey(type, normalizedValue, SUPPRESSION_FINGERPRINT_KEY_ID);
 }
 
 export function legacySuppressionFingerprint(type: string, normalizedValue: string) {
-  return fingerprintFor(type, normalizedValue, (value) => value.trim().toLowerCase());
+  return suppressionFingerprintForKey(type, normalizedValue, "legacy-v1", true);
 }
 
 export function suppressionFingerprintCandidates(type: string, normalizedValue: string) {
-  return [...new Set([suppressionFingerprint(type, normalizedValue), legacySuppressionFingerprint(type, normalizedValue)])];
+  const candidates = [suppressionFingerprint(type, normalizedValue)];
+  if (suppressionKeyAvailable("legacy-v1")) candidates.push(legacySuppressionFingerprint(type, normalizedValue));
+  return [...new Set(candidates)];
 }
 
-function identityFingerprint(prefix: string, platform: string, value: string) {
-  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY"))
+function identityFingerprint(prefix: string, platform: string, value: string, keyId = SUPPRESSION_FINGERPRINT_KEY_ID) {
+  return createHmac("sha256", suppressionSecretBytes(keyId))
     .update(`${prefix}\0${platform.trim().toUpperCase()}\0${value.trim()}`)
     .digest("hex");
 }
 
-export function stableNativeIdFingerprint(input: { platform: string; nativeId?: string | null }) {
+export function stableNativeIdFingerprintForKey(input: { platform: string; nativeId?: string | null }, keyId: string) {
   const nativeId = input.nativeId?.trim();
-  return nativeId ? identityFingerprint("ACCOUNT_NATIVE_ID_V2", input.platform, nativeId) : null;
+  return nativeId ? identityFingerprint("ACCOUNT_NATIVE_ID_V2", input.platform, nativeId, keyId) : null;
+}
+
+export function stableProfileFingerprintForKey(input: { platform: string; normalizedProfileUrl: string }, keyId: string) {
+  return identityFingerprint("ACCOUNT_PROFILE_URL_V2", input.platform, input.normalizedProfileUrl, keyId);
+}
+
+export function stableIdentityFingerprintsForKey(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }, keyId: string) {
+  return {
+    nativeId: stableNativeIdFingerprintForKey(input, keyId),
+    profileUrl: stableProfileFingerprintForKey(input, keyId),
+  };
+}
+
+export function stableNativeIdFingerprint(input: { platform: string; nativeId?: string | null }) {
+  return stableNativeIdFingerprintForKey(input, SUPPRESSION_FINGERPRINT_KEY_ID);
 }
 
 export function stableProfileFingerprint(input: { platform: string; normalizedProfileUrl: string }) {
-  return identityFingerprint("ACCOUNT_PROFILE_URL_V2", input.platform, input.normalizedProfileUrl);
+  return stableProfileFingerprintForKey(input, SUPPRESSION_FINGERPRINT_KEY_ID);
 }
 
 export function stableIdentityFingerprints(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }) {
-  return {
-    nativeId: stableNativeIdFingerprint(input),
-    profileUrl: stableProfileFingerprint(input),
-  };
+  return stableIdentityFingerprintsForKey(input, SUPPRESSION_FINGERPRINT_KEY_ID);
 }
 
 /**

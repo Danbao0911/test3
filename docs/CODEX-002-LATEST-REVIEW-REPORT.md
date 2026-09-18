@@ -2,6 +2,8 @@
 
 ## 状态
 
+本报告的 R01–R06 结论已由 `CODEX-002-RECHECK-R2` 复核；在 R2 修复提交完成并通过新的 CI 前，不应将本报告单独视为生命周期一致性、恢复重放或登录并发的完整验收。R2 当前报告见 [CODEX-002-RECHECK-R2-REPORT.md](./CODEX-002-RECHECK-R2-REPORT.md)。
+
 本轮已追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2) 的
 `codex/002-contact-review`，最新经过 CI 验证的代码提交为
 `a8c57130bc3efc6f67c00e0ed9f4952a2e53df8d`。没有修改 `main`、强推、合并或部署，T08 仍为关闭态预检，真实平台请求、生产凭据、真实联系人提取和批准均未开启。
