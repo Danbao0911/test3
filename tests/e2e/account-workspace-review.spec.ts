@@ -51,7 +51,7 @@ test("T05-R1 工作台保存冲突、备注草稿保留和收藏筛选刷新", a
 
     await second.getByLabel("跟进备注").fill("B 旧页面草稿 sentinel@example.com");
     await second.getByRole("button", { name: "保存工作台状态" }).click();
-    await expect(second.getByRole("alert")).toContainText("工作台已被其他用户更新");
+    await expect(second.locator(".notice.error")).toContainText("工作台已被其他用户更新");
     await expect(second.getByLabel("跟进备注")).toHaveValue("B 旧页面草稿 sentinel@example.com");
     await expect(second.getByLabel("跟进状态")).toHaveValue("NOT_CONTACTED");
 
