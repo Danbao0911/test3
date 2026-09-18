@@ -72,7 +72,7 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   await page.getByLabel("数据来源").selectOption(sourceId!);
   await page.getByLabel("来源页面 HTTPS 链接").fill(`https://example.com/demo/source/t05-${suffix}`);
   await page.getByRole("button", { name: "保存账号" }).click();
-  await expect(page).toHaveURL(/\/accounts\//);
+  await expect(page).toHaveURL(/\/accounts\/[0-9a-f-]{36}$/);
   await expect(page.getByText("收藏与人工跟进")).toBeVisible();
   await page.getByRole("button", { name: "收藏账号" }).click();
   await page.getByLabel("负责人").selectOption({ label: `${email} · ADMIN` });

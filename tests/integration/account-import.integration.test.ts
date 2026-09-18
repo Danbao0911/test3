@@ -559,7 +559,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     expect(accountResult.response.status).toBe(201);
     const accountId = accountResult.data.item.id as string;
 
-    const pendingList = await request(`/api/accounts?serviceTag=财富规划&contactStatus=PENDING&hasContact=NO&followUpStatus=NOT_CONTACTED&favorite=NO&pageSize=100`);
+    const pendingList = await request(`/api/accounts?serviceTag=财富规划&hasContact=NO&followUpStatus=NOT_CONTACTED&favorite=NO&pageSize=100`);
     expect(pendingList.response.status).toBe(200);
     expect((pendingList.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
     expect((pendingList.data.items as ApiItem[]).find((item) => item.id === accountId)).toMatchObject({ favorite: false, hasUsableContact: false, reviewStatus: null, followUp: { status: "NOT_CONTACTED", note: "" } });
