@@ -2,7 +2,7 @@ import { assertRuntimeConfiguration } from "../src/lib/runtime-config";
 import { prisma } from "../src/lib/db";
 import { replayDeletionRules } from "../src/lib/retention-service";
 import { runRetentionCleanup } from "../src/lib/export-service";
-import { decodeMaintenanceCheckpoint, encodeMaintenanceCheckpoint, type MaintenanceCursors, type MaintenanceOperation } from "../src/lib/maintenance-checkpoint";
+import { decodeMaintenanceCheckpoint, encodeMaintenanceCheckpoint, maintenanceTargetFingerprint, type MaintenanceCursors, type MaintenanceMode, type MaintenanceOperation } from "../src/lib/maintenance-checkpoint";
 
 function flag(name: string) { return process.argv.includes(name); }
 
@@ -25,8 +25,8 @@ function runId() {
   return value;
 }
 
-function checkpointFor(operation: MaintenanceOperation, database: string, cursors: MaintenanceCursors, cutoff: Date) {
-  return encodeMaintenanceCheckpoint({ operation, database, runId: runId(), cutoff: cutoff.toISOString(), cursors });
+function checkpointFor(operation: MaintenanceOperation, mode: MaintenanceMode, database: string, targetFingerprint: string, cursors: MaintenanceCursors, cutoff: Date) {
+  return encodeMaintenanceCheckpoint({ operation, mode, database, targetFingerprint, runId: runId(), cutoff: cutoff.toISOString(), cursors });
 }
 
 async function main() {
@@ -35,11 +35,13 @@ async function main() {
   const { databaseTarget } = assertRuntimeConfiguration();
   if (process.env.APP_MODE === "production") throw new Error("生命周期维护命令拒绝生产模式");
   const dryRun = flag("--dry-run");
+  const mode: MaintenanceMode = dryRun ? "dry-run" : "execute";
   if (!dryRun && process.env.RETENTION_MAINTENANCE_CONFIRM !== "1") throw new Error("非 dry-run 维护需要 RETENTION_MAINTENANCE_CONFIRM=1");
   const actorId = process.env.RETENTION_MAINTENANCE_ACTOR_ID;
   if (!actorId) throw new Error("必须设置 RETENTION_MAINTENANCE_ACTOR_ID");
+  const targetFingerprint = maintenanceTargetFingerprint(databaseTarget.url, runId());
   const checkpointToken = argument("--checkpoint");
-  const checkpoint = checkpointToken ? decodeMaintenanceCheckpoint(checkpointToken, { operation, database: databaseTarget.name, runId: runId() }) : undefined;
+  const checkpoint = checkpointToken ? decodeMaintenanceCheckpoint(checkpointToken, { operation, mode, database: databaseTarget.name, targetFingerprint, runId: runId() }) : undefined;
   const now = checkpoint?.cutoff ?? new Date();
   try {
     if (operation === "replay") {
@@ -57,12 +59,14 @@ async function main() {
         if (!last.hasMore) break;
       }
       const scanComplete = last?.scanComplete === true;
-      const enforcementComplete = last?.enforcementComplete === true;
-      const complete = scanComplete && enforcementComplete;
-      const continuation = complete || scanComplete ? null : checkpointFor(operation, databaseTarget.name, cursors, now);
-      console.log(JSON.stringify({ operation, database: databaseTarget.name, dryRun, complete, scanComplete, enforcementComplete, incomplete: !complete, continuation, ...total, blockedRules: last?.blockedRules ?? 0, legacyUnknown: last?.legacyUnknown ?? 0, rules: last?.rules ?? 0 }));
+      const enforcementComplete = dryRun ? null : last?.enforcementComplete === true;
+      const executionComplete = !dryRun && scanComplete && enforcementComplete === true;
+      const previewComplete = dryRun && scanComplete;
+      const complete = dryRun ? previewComplete : executionComplete;
+      const continuation = complete || scanComplete ? null : checkpointFor(operation, mode, databaseTarget.name, targetFingerprint, cursors, now);
+      console.log(JSON.stringify({ operation, database: databaseTarget.name, dryRun, mode, complete, previewComplete, scanComplete, enforcementComplete, executionComplete, incomplete: !complete, continuation, ...total, blockedRules: last?.blockedRules ?? 0, legacyUnknown: last?.legacyUnknown ?? 0, rules: last?.rules ?? 0 }));
       if (!scanComplete) process.exitCode = 2;
-      else if (!enforcementComplete) process.exitCode = 3;
+      else if (!dryRun && !enforcementComplete) process.exitCode = 3;
       return;
     }
 
@@ -78,8 +82,8 @@ async function main() {
       if (last.complete) break;
     }
     const complete = last?.complete === true;
-    const continuation = complete ? null : checkpointFor(operation, databaseTarget.name, cursors, now);
-    console.log(JSON.stringify({ operation, database: databaseTarget.name, dryRun, complete, incomplete: !complete, continuation, ...total }));
+    const continuation = complete ? null : checkpointFor(operation, mode, databaseTarget.name, targetFingerprint, cursors, now);
+    console.log(JSON.stringify({ operation, database: databaseTarget.name, dryRun, mode, complete, previewComplete: dryRun ? complete : false, executionComplete: !dryRun && complete, incomplete: !complete, continuation, ...total }));
     if (!complete) process.exitCode = 2;
   } finally {
     await prisma.$disconnect();

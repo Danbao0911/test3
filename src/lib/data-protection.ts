@@ -35,6 +35,15 @@ function configuredSuppressionSecrets() {
   return configured;
 }
 
+/** Returns identifiers only; secret material is never returned or logged. */
+export function configuredSuppressionKeyIds() {
+  const keys = new Set(configuredSuppressionSecrets().keys());
+  // Non-production retains the deterministic test fallback used by existing
+  // isolated fixtures. Production must configure the current key explicitly.
+  if (currentRuntimeMode() !== "production") keys.add(SUPPRESSION_FINGERPRINT_KEY_ID);
+  return [...keys];
+}
+
 function suppressionSecretBytes(keyId: string) {
   const configured = configuredSuppressionSecrets().get(keyId);
   if (configured) return createHash("sha256").update(configured).digest();
@@ -81,8 +90,13 @@ export function legacySuppressionFingerprint(type: string, normalizedValue: stri
 }
 
 export function suppressionFingerprintCandidates(type: string, normalizedValue: string) {
-  const candidates = [suppressionFingerprint(type, normalizedValue)];
-  if (suppressionKeyAvailable("legacy-v1")) candidates.push(legacySuppressionFingerprint(type, normalizedValue));
+  const candidates: string[] = [];
+  for (const keyId of configuredSuppressionKeyIds()) {
+    if (!suppressionKeyAvailable(keyId)) continue;
+    // The algorithm version is part of the rule record.  The well-known
+    // legacy id is the only v1 format; every other configured id is v2.
+    candidates.push(suppressionFingerprintForKey(type, normalizedValue, keyId, keyId === "legacy-v1"));
+  }
   return [...new Set(candidates)];
 }
 

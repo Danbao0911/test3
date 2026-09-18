@@ -5,7 +5,7 @@ import type { PrismaClient, Source } from "../generated/prisma/client";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "./account-normalizer";
 import { accountInputSchema, type AccountInput, validationMessage } from "./validation";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
-import { accountIdentityLockKeys, activeDeletionIdentityWhere } from "./identity-rules";
+import { accountIdentityLockKeys, deletionRuleIsSupported, deletionRuleMatchesAccount } from "./identity-rules";
 
 export const IMPORT_FORMAT_VERSION = "v1";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -123,7 +123,7 @@ export function sourceBlockMessage(source: Pick<Source, "status" | "allowImport"
 export type DbClient = Prisma.TransactionClient;
 
 export class SourceNotAllowedError extends Error {
-  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED" | "IDENTITY_DELETION_BLOCKED", message: string) {
+  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED" | "IDENTITY_DELETION_BLOCKED" | "IDENTITY_DELETION_RULE_UNAVAILABLE", message: string) {
     super(message);
     this.name = "SourceNotAllowedError";
   }
@@ -185,7 +185,15 @@ async function findExistingAccount(tx: DbClient, input: Pick<AccountInput, "plat
 }
 
 async function identityDeletionBlocked(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
-  return Boolean(await tx.deletionRequest.findFirst({ where: activeDeletionIdentityWhere({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }), select: { id: true } }));
+  const rules = await tx.deletionRequest.findMany({
+    where: { scope: { in: ["ACCOUNT_REIMPORT_BLOCK", "LEGACY_UNKNOWN"] }, targetType: "ACCOUNT", OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: new Date() } }] },
+    select: { targetType: true, scope: true, identityType: true, identityVersion: true, identityKeyId: true, identityNativeFingerprint: true, identityProfileFingerprint: true },
+  });
+  for (const rule of rules) {
+    if (!deletionRuleIsSupported(rule)) throw new SourceNotAllowedError("IDENTITY_DELETION_RULE_UNAVAILABLE", "存在无法用当前受信密钥或算法核验的身份删除规则，已阻止录入");
+    if (deletionRuleMatchesAccount({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl }, rule)) return true;
+  }
+  return false;
 }
 
 export async function createAccountWithRules(

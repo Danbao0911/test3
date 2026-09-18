@@ -201,8 +201,8 @@ export async function replayDeletionRules(db: PrismaClient, actorId: string, opt
   };
   const hasMore = (!next.accountDone && accountHasMore) || (!next.contactDone && contactHasMore);
   const blockedRuleCount = blockedRules.length + blockedSuppressions.length;
-  const enforcementComplete = blockedRuleCount === 0 && legacyUnknown === 0;
-  const resultBase = { scanned: { accounts: accountPage.length, contacts: contactPage.length }, matched: { accounts: matched.length, contacts: matchedContacts.length }, legacyUnknown, rules: rules.length, blockedRules: blockedRuleCount, hasMore, scanComplete: !hasMore, enforcementComplete, complete: !hasMore && enforcementComplete, next };
+  const enforcementComplete = options.dryRun ? null : blockedRuleCount === 0 && legacyUnknown === 0;
+  const resultBase = { scanned: { accounts: accountPage.length, contacts: contactPage.length }, matched: { accounts: matched.length, contacts: matchedContacts.length }, legacyUnknown, rules: rules.length, blockedRules: blockedRuleCount, hasMore, scanComplete: !hasMore, enforcementComplete, complete: !hasMore && (options.dryRun ? true : enforcementComplete === true), next };
   if (options.dryRun) return { dryRun: true, accounts: matched.length, contacts: matchedContacts.length, deleted: { accounts: 0, contacts: 0 }, ...resultBase };
   let removedAccounts = 0;
   for (const account of matched) {

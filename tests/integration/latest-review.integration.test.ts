@@ -6,13 +6,17 @@ import { PrismaClient } from "../../src/generated/prisma/client";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { parseTestDatabaseConfig, assertRestrictedTestRole } from "../helpers/test-database";
 import { replayDeletionRules } from "../../src/lib/retention-service";
-import { legacySuppressionFingerprint, stableIdentityFingerprints, suppressionFingerprint, SUPPRESSION_FINGERPRINT_KEY_ID, SUPPRESSION_FINGERPRINT_VERSION } from "../../src/lib/data-protection";
+import { legacySuppressionFingerprint, stableIdentityFingerprints, stableIdentityFingerprintsForKey, suppressionFingerprint, suppressionFingerprintForKey, SUPPRESSION_FINGERPRINT_KEY_ID, SUPPRESSION_FINGERPRINT_VERSION } from "../../src/lib/data-protection";
+import { createAccountWithRules } from "../../src/lib/import-service";
+import { normalizeProfileUrl, normalizeSourceUrl } from "../../src/lib/account-normalizer";
+import { extractForAccount } from "../../src/lib/contact-service";
 
 const database = parseTestDatabaseConfig();
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: database.url }) });
 const previousSuppressionKeys = process.env.SUPPRESSION_HMAC_KEYS_JSON;
 process.env.SUPPRESSION_HMAC_KEYS_JSON = JSON.stringify({
   [SUPPRESSION_FINGERPRINT_KEY_ID]: process.env.SUPPRESSION_HMAC_KEY ?? `test3-SUPPRESSION_HMAC_KEY-${database.runId}`,
+  "old-v2": `latest-review-old-v2-key-${database.runId}`,
   "legacy-v1": `latest-review-old-key-${database.runId}`,
 });
 let databaseReady = false;
@@ -60,6 +64,20 @@ describe("CODEX-002-LATEST-REVIEW real PostgreSQL replay and identity rules", ()
   }, 30_000);
 
   it("扫描 205+205 全范围，跨批恢复、重复重放和旧指纹兼容均可验证", async () => {
+    const blockedInput = { platform: "X" as const, nativeId: `latest-old-v2-${randomUUID()}`, displayName: "LATEST old-v2 blocked", profileUrl: `https://example.com/latest/old-v2/${randomUUID()}`, organization: "LATEST", serviceTags: ["test"], region: "上海", sourceId, sourceUrl: "https://example.com/latest/source" };
+    const blockedUrl = normalizeProfileUrl(blockedInput.platform, blockedInput.profileUrl);
+    const blockedIdentity = stableIdentityFingerprintsForKey({ platform: blockedInput.platform, nativeId: blockedInput.nativeId, normalizedProfileUrl: blockedUrl }, "old-v2");
+    await prisma.deletionRequest.create({ data: { targetHash: createHash("sha256").update(`latest-old-v2-${blockedInput.nativeId}`).digest("hex"), targetType: "ACCOUNT", identityNativeFingerprint: blockedIdentity.nativeId, identityProfileFingerprint: blockedIdentity.profileUrl, identityType: "ACCOUNT_PLATFORM_IDENTITY_V2", identityVersion: 2, identityKeyId: "old-v2", scope: "ACCOUNT_REIMPORT_BLOCK", identityExpiresAt: new Date(Date.now() + 86_400_000), reason: "LATEST old-v2 online import test", requestedById: actorId, completedById: actorId } });
+    await expect(createAccountWithRules(prisma, blockedInput, blockedUrl, normalizeSourceUrl(blockedInput.sourceUrl))).rejects.toMatchObject({ code: "IDENTITY_DELETION_BLOCKED" });
+
+    const suppressedValue = `latest-old-v2-${randomUUID()}@example.com`;
+    const suppressedAccount = await prisma.account.create({ data: { platform: "X", nativeId: `latest-suppressed-${randomUUID()}`, displayName: "LATEST old-v2 contact", profileUrl: `https://example.com/latest/suppressed/${randomUUID()}`, normalizedProfileUrl: `https://example.com/latest/suppressed/${randomUUID()}`, serviceTags: ["test"], sourceId, sourceUrl: "https://example.com/latest/source", capturedAt: new Date(), isDemo: true } });
+    accountIds.push(suppressedAccount.id);
+    await prisma.contactSuppression.create({ data: { fingerprint: suppressionFingerprintForKey("EMAIL", suppressedValue, "old-v2"), fingerprintVersion: 2, fingerprintKeyId: "old-v2", scope: "CONTACT_VALUE_GLOBAL", contactType: "EMAIL", reasonCode: "DO_NOT_CONTACT", basis: "LATEST old-v2 online extraction test", expiresAt: new Date(Date.now() + 86_400_000), createdById: actorId } });
+    const extraction = await extractForAccount(prisma, actorId, { accountId: suppressedAccount.id, sourceId, sourceUrl: "https://example.com/latest/evidence", capturedAt: new Date(Date.now() - 1_000).toISOString(), fieldLocation: "LATEST old-v2", text: `商务邮箱：${suppressedValue}`, context: "ACCOUNT_PROFILE" });
+    expect(extraction.createdCount).toBe(0);
+    expect(extraction.suppressedCount).toBe(1);
+
     const firstAccounts = Array.from({ length: 205 }, (_, index) => ({ id: orderedUuid(1, index), platform: "X" as const, nativeId: `latest-account-${index}`, displayName: `LATEST account ${index}`, profileUrl: `https://example.com/latest/account/${index}`, normalizedProfileUrl: `https://example.com/latest/account/${index}`, organization: "LATEST", serviceTags: ["test"], region: "上海", sourceId, sourceUrl: "https://example.com/latest/source", capturedAt: new Date(), isDemo: true }));
     const secondAccounts = Array.from({ length: 205 }, (_, index) => ({ id: orderedUuid(2, index), platform: "X" as const, nativeId: `latest-contact-account-${index}`, displayName: `LATEST contact account ${index}`, profileUrl: `https://example.com/latest/contact-account/${index}`, normalizedProfileUrl: `https://example.com/latest/contact-account/${index}`, organization: "LATEST", serviceTags: ["test"], region: "上海", sourceId, sourceUrl: "https://example.com/latest/source", capturedAt: new Date(), isDemo: true }));
     const accounts = await prisma.account.createManyAndReturn({ data: [...firstAccounts, ...secondAccounts] });

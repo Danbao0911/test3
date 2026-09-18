@@ -5,12 +5,16 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../src/generated/prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseTestDatabaseConfig, assertRestrictedTestRole } from "../helpers/test-database";
-import { suppressionFingerprint } from "../../src/lib/data-protection";
+import { stableIdentityFingerprints, suppressionFingerprint, SUPPRESSION_FINGERPRINT_KEY_ID } from "../../src/lib/data-protection";
 
 const database = parseTestDatabaseConfig();
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: database.url }) });
 let databaseReady = false;
 let actorId = "";
+let sourceId = "";
+let snapshotId = "";
+let replayAccountId = "";
+let replayDeletionId = "";
 
 function runMaintenance(args: string[]) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
@@ -53,9 +57,17 @@ describe("CODEX-002-RECHECK-R2 maintenance subprocess", () => {
     finally { await guard.end(); }
     const actor = await prisma.user.create({ data: { email: `recheck-r2-${database.runId}-${randomUUID()}@example.test`, passwordHash: "not-used", role: "ADMIN" } });
     actorId = actor.id;
+    const source = await prisma.source.create({ data: { name: `recheck-r3-${randomUUID()}`, type: "DEMO", status: "APPROVED", permissionNote: "R3 isolated checkpoint test", allowImport: true, allowExtract: true, allowEvidenceText: true, policyVersion: 1 } });
+    sourceId = source.id;
+    const snapshot = await prisma.sourcePolicySnapshot.create({ data: { sourceId, version: 1, status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, allowExport: false, allowRelate: false, authorizationBasis: "R3 isolated checkpoint test", changeType: "TEST", changedById: actorId } });
+    snapshotId = snapshot.id;
   });
 
   afterAll(async () => {
+    if (replayDeletionId) await prisma.deletionRequest.delete({ where: { id: replayDeletionId } }).catch(() => undefined);
+    if (replayAccountId) await prisma.account.delete({ where: { id: replayAccountId } }).catch(() => undefined);
+    if (snapshotId) await prisma.sourcePolicySnapshot.delete({ where: { id: snapshotId } }).catch(() => undefined);
+    if (sourceId) await prisma.source.delete({ where: { id: sourceId } }).catch(() => undefined);
     if (actorId) {
       await prisma.contactSuppression.deleteMany({ where: { createdById: actorId } });
       await prisma.auditEvent.deleteMany({ where: { actorId } });
@@ -90,4 +102,38 @@ describe("CODEX-002-RECHECK-R2 maintenance subprocess", () => {
     expect(result.code).toBe(1);
     expect(`${result.stdout}\n${result.stderr}`).toContain("checkpoint");
   }, 30_000);
+
+  it("拒绝把 dry-run 游标交给 execute，并允许全新 execute 从头完成", async () => {
+    if (!databaseReady) return;
+    const account = await prisma.account.create({ data: {
+      id: "00000000-0000-4000-9000-000000000001", platform: "X", nativeId: `recheck-r3-${randomUUID()}`,
+      displayName: "R3 checkpoint account", profileUrl: "https://example.com/recheck-r3/checkpoint",
+      normalizedProfileUrl: "https://example.com/recheck-r3/checkpoint", serviceTags: ["R3"], sourceId,
+      sourceUrl: "https://example.com/recheck-r3/source", capturedAt: new Date(), isDemo: true,
+    } });
+    replayAccountId = account.id;
+    const identity = stableIdentityFingerprints(account);
+    const deletion = await prisma.deletionRequest.create({ data: {
+      targetHash: suppressionFingerprint("ACCOUNT_ID", account.id), targetType: "ACCOUNT", accountId: account.id,
+      identityNativeFingerprint: identity.nativeId, identityProfileFingerprint: identity.profileUrl,
+      identityType: "ACCOUNT_PLATFORM_IDENTITY_V2", identityVersion: 2, identityKeyId: SUPPRESSION_FINGERPRINT_KEY_ID,
+      scope: "ACCOUNT_REIMPORT_BLOCK", identityExpiresAt: new Date(Date.now() + 86_400_000), reason: "R3 checkpoint test",
+      requestedById: actorId, completedById: actorId,
+    } });
+    replayDeletionId = deletion.id;
+    const preview = await runMaintenance(["replay", "--dry-run", "--batch-size", "1", "--max-batches", "1"]);
+    expect(preview.code).toBe(2);
+    const previewJson = outputJson(preview.stdout);
+    expect(previewJson.enforcementComplete).toBeNull();
+    expect(previewJson.mode).toBe("dry-run");
+    expect(typeof previewJson.continuation).toBe("string");
+    const reused = await runMaintenance(["replay", "--batch-size", "1", "--max-batches", "10", "--checkpoint", String(previewJson.continuation)]);
+    expect(reused.code).toBe(1);
+    expect(`${reused.stdout}\n${reused.stderr}`).toContain("模式");
+    expect(await prisma.account.findUnique({ where: { id: replayAccountId }, select: { id: true } })).not.toBeNull();
+    const execute = await runMaintenance(["replay", "--batch-size", "1", "--max-batches", "1000"]);
+    expect(execute.code).toBe(0);
+    expect(outputJson(execute.stdout)).toMatchObject({ mode: "execute", executionComplete: true, complete: true });
+    expect(await prisma.account.findUnique({ where: { id: replayAccountId }, select: { id: true } })).toBeNull();
+  }, 120_000);
 });
