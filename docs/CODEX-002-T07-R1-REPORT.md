@@ -2,6 +2,8 @@
 
 ## 状态
 
+R2 复核已在 [CODEX-002-RECHECK-R2-REPORT.md](./CODEX-002-RECHECK-R2-REPORT.md) 追加修复生命周期规则、维护 CLI checkpoint、身份锁和登录租约。本 T07-R1 报告的“已完成”只适用于其原始基线；不能覆盖 R2 对恢复阻塞和跨进程并发的新增限制。
+
 T07-R1 代码、真实测试和本报告均已追加到 PR [#2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review`。功能/测试最终提交为 `7d78ca5b226da15dc054197b2c5fef11453c1109`；未修改 `main`、未强推、未自动合并、未部署生产。真实联系人提取和批准开关继续关闭。PR CI 已在隔离 PostgreSQL 和独立 E2E 数据库完成。
 
 最终 Push CI：[35336417309](https://github.com/Danbao0911/test3/actions/runs/35336417309)；对应 PR CI：[35336420997](https://github.com/Danbao0911/test3/actions/runs/35336420997)。两个 CI 的 `verify` 与 `e2e` 均通过，具体计数见下表。此前 `35336089025` 的失败仅是新增测试响应类型未收窄，已由 `7d78ca5` 修复并重新全量验证。
