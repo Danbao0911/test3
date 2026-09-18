@@ -558,6 +558,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     const accountResult = await request("/api/accounts", { method: "POST", ...jsonBody(accountBody(sourceId, `workspace-${randomUUID()}`)) });
     expect(accountResult.response.status).toBe(201);
     const accountId = accountResult.data.item.id as string;
+    const workspaceVersion = (accountResult.data.item.workspaceVersion as number) ?? 1;
 
     const pendingList = await request(`/api/accounts?serviceTag=财富规划&hasContact=NO&followUpStatus=NOT_CONTACTED&favorite=NO&pageSize=100`);
     expect(pendingList.response.status).toBe(200);
@@ -566,12 +567,10 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
 
     const favorite = await request(`/api/accounts/${accountId}/favorite`, { method: "POST", headers: { Origin: baseUrl } });
     expect(favorite.response.status).toBe(200);
-    const workspace = await request(`/api/accounts/${accountId}/follow-up`, { method: "PATCH", ...jsonBody({ status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" }) });
+    const workspace = await request(`/api/accounts/${accountId}/workspace`, { method: "PATCH", ...jsonBody({ expectedWorkspaceVersion: workspaceVersion, ownerId: userId, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" } }) });
     expect(workspace.response.status).toBe(200);
-    const assigned = await request(`/api/accounts/${accountId}`, { method: "PATCH", ...jsonBody({ ownerId: userId }) });
-    expect(assigned.response.status).toBe(200);
     const detail = await request(`/api/accounts/${accountId}`);
-    expect(detail.data.item).toMatchObject({ favorite: true, owner: { id: userId }, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" } });
+    expect(detail.data.item).toMatchObject({ favorite: true, owner: { id: userId }, followUp: { status: "CONTACTING", note: "已人工确认公开业务方向，等待下一次人工跟进" }, workspaceVersion: workspaceVersion + 1 });
     const filtered = await request(`/api/accounts?favorite=YES&followUpStatus=CONTACTING&hasContact=NO&pageSize=100`);
     expect((filtered.data.items as ApiItem[]).some((item) => item.id === accountId)).toBe(true);
 
@@ -590,7 +589,7 @@ describe("CODEX-001-R1 real HTTP account/import contract", () => {
     try {
       expect((await request("/api/users")).response.status).toBe(403);
       expect((await request(`/api/accounts/${accountId}/favorite`, { method: "DELETE", headers: { Origin: baseUrl } })).response.status).toBe(403);
-      expect((await request(`/api/accounts/${accountId}/follow-up`, { method: "PATCH", ...jsonBody({ status: "REPLIED", note: "viewer" }) })).response.status).toBe(403);
+      expect((await request(`/api/accounts/${accountId}/workspace`, { method: "PATCH", ...jsonBody({ expectedWorkspaceVersion: detail.data.item.workspaceVersion, followUp: { status: "REPLIED", note: "viewer" } }) })).response.status).toBe(403);
       expect((await request(`/api/accounts/${accountId}`)).data.item.followUp).toMatchObject({ status: "CONTACTING" });
     } finally { await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }); }
   });

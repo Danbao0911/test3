@@ -138,6 +138,7 @@ model Account {
   capturedAt            DateTime
   isDemo                Boolean     @default(false)
   ownerId               String?     @db.Uuid
+  workspaceVersion      Int         @default(1)
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   source                Source      @relation(fields: [sourceId], references: [id], onDelete: Restrict)

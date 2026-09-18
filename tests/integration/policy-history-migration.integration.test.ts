@@ -10,6 +10,8 @@ const migrations = [
   "20260917230000_init/migration.sql",
   "20260918120000_contact_review/migration.sql",
   "20260918150000_policy_snapshots/migration.sql",
+  "20260918180000_account_workspace/migration.sql",
+  "20260918190000_account_workspace_version/migration.sql",
 ].map((relative) => readFileSync(path.join(process.cwd(), "prisma/migrations", relative), "utf8"));
 const schemaName = `policy_migration_${database.runId}_${randomUUID().replaceAll("-", "")}`;
 const sourceId = randomUUID();
@@ -45,6 +47,8 @@ describe("R04 policy snapshot incremental migration", () => {
       [randomUUID(), accountId, sourceId],
     );
     await client.query(migrations[2]);
+    await client.query(migrations[3]);
+    await client.query(migrations[4]);
   }, 30_000);
 
   afterAll(async () => {
@@ -82,5 +86,12 @@ describe("R04 policy snapshot incremental migration", () => {
       [accountId],
     );
     expect(evidence.rows).toEqual([{ policyVersion: 2, policySnapshotId: expect.any(String), version: 2, isLegacy: true }]);
+    const workspace = await client!.query(
+      `SELECT a."workspaceVersion", f."status", f."note"
+       FROM "Account" a JOIN "AccountFollowUp" f ON f."accountId" = a."id"
+       WHERE a."id" = $1`,
+      [accountId],
+    );
+    expect(workspace.rows).toEqual([{ workspaceVersion: 1, status: "NOT_CONTACTED", note: "" }]);
   });
 });

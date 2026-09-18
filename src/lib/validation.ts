@@ -36,17 +36,31 @@ export const accountPatchSchema = z
     organization: optionalText(200).optional(),
     serviceTags: z.array(z.string().trim().min(1).max(40)).max(10).optional(),
     region: optionalText(100).optional(),
-    ownerId: z.string().uuid().nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个可修改字段");
 
 export const followUpPatchSchema = z
   .object({
+    expectedWorkspaceVersion: z.number().int().positive(),
     status: z.enum(followUpStatusValues),
     note: z.string().trim().max(1000),
+    confirmReactivation: z.boolean().optional(),
   })
   .strict();
+
+export const workspacePatchSchema = z
+  .object({
+    expectedWorkspaceVersion: z.number().int().positive(),
+    ownerId: z.string().uuid().nullable().optional(),
+    followUp: z.object({
+      status: z.enum(followUpStatusValues),
+      note: z.string().trim().max(1000),
+      confirmReactivation: z.boolean().optional(),
+    }).strict().optional(),
+  })
+  .strict()
+  .refine((value) => value.ownerId !== undefined || value.followUp !== undefined, "至少提供负责人或跟进修改");
 
 export const sourceCreateSchema = z
   .object({
