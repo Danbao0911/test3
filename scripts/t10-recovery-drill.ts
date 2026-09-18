@@ -38,7 +38,9 @@ async function runTool(tool: "pg_dump" | "pg_restore", args: string[], connectio
     await execFileAsync(command, commandArgs, { env: { ...process.env, PGPASSWORD: connection.password }, maxBuffer: 256 * 1024 });
   } catch (error) {
     const exitCode = typeof error === "object" && error && "code" in error ? String(error.code) : "unknown";
-    throw new Error(`${tool} 执行失败（退出码 ${exitCode}）；未输出数据库工具原文`);
+    const stderr = typeof error === "object" && error && "stderr" in error ? String(error.stderr ?? "") : "";
+    const safeStderr = stderr.replaceAll(connection.password, "[redacted]").replaceAll(connection.url.toString(), "[redacted]").replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "[redacted-url]").trim().slice(0, 300);
+    throw new Error(`${tool} 执行失败（退出码 ${exitCode}）${safeStderr ? `：${safeStderr}` : "；未输出数据库工具原文"}`);
   }
 }
 
