@@ -7,7 +7,11 @@ import type { Prisma } from "@/generated/prisma/client";
 export async function clearContactDependencies(tx: Prisma.TransactionClient, contactId: string, evidenceId: string, accountId: string) {
   await tx.exportJob.deleteMany({ where: { accountIds: { has: accountId } } });
   await tx.accountLinkEvidence.updateMany({ where: { referenceEvidenceId: evidenceId }, data: { referenceEvidenceId: null, referenceEvidenceMissing: true } });
-  await tx.evidence.delete({ where: { id: evidenceId } });
+  // Delete both sides explicitly. The FK also cascades ContactPoint from
+  // Evidence, but the explicit predicates make the physical cleanup contract
+  // observable and safe if a legacy database has a different FK action.
+  await tx.contactPoint.deleteMany({ where: { id: contactId } });
+  await tx.evidence.deleteMany({ where: { id: evidenceId } });
   return { contactId, evidenceId, accountId };
 }
 

@@ -188,7 +188,7 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect((await request("reviewer", `/api/contacts/${replacementId}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "替换证据人工核对" }) })).response.status).toBe(200);
     const downloaded = await request("admin", job.data.item!.downloadUrl as string);
     expect(downloaded.response.status).toBe(410);
-    expect((await responseData(downloaded.response)).raw ?? "").not.toContain(fixture.contactValue);
+    expect(JSON.stringify(downloaded.data)).not.toContain(fixture.contactValue);
     const stored = await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string }, select: { status: true, encryptedPayload: true } });
     expect(stored).toMatchObject({ status: "REVOKED", encryptedPayload: "" });
   }, 60_000);
