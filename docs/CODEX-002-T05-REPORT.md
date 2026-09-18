@@ -1,8 +1,17 @@
 # CODEX-002-T05 账号工作台与跟进管理交付报告
 
+## T05-R1 更新
+
+T05-R1 已在现有 [PR #2](https://github.com/Danbao0911/test3/pull/2) 完成并通过最终 Push/PR CI。详细的 W01—W06 修改、真实 HTTP/E2E 结果、迁移影响和未解决边界见新增的 [CODEX-002-T05-R1-REPORT.md](./CODEX-002-T05-R1-REPORT.md)。本文件保留 T05 初次交付记录，后续以 T05-R1 报告为准。
+
+- 当前分支：`codex/002-contact-review`
+- 当前 PR head：`60344cde5bbf49b21eba1d4a439d2530ac2071a3`
+- 最终 Push CI：[35315241700](https://github.com/Danbao0911/test3/actions/runs/35315241700)
+- 最终 PR CI：[35315245304](https://github.com/Danbao0911/test3/actions/runs/35315245304)
+
 ## 交付状态
 
-T05 已完成并更新现有 [PR #2](https://github.com/Danbao0911/test3/pull/2)。本轮只实现账号工作台、收藏、负责人和人工跟进，不开始新的平台采集，不开放真实联系人。
+原始 T05 已完成并更新现有 [PR #2](https://github.com/Danbao0911/test3/pull/2)；T05-R1 在此基础上补齐并发、原子保存、角色脱敏、查询边界和真实验收。本轮只实现账号工作台、收藏、负责人和人工跟进，不开始新的平台采集，不开放真实联系人。
 
 - 仓库：`Danbao0911/test3`
 - 分支：`codex/002-contact-review`
