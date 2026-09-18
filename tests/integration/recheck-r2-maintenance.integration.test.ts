@@ -14,6 +14,7 @@ let actorId = "";
 let sourceId = "";
 let snapshotId = "";
 let replayAccountId = "";
+let replaySentinelId = "";
 let replayDeletionId = "";
 
 function runMaintenance(args: string[]) {
@@ -66,6 +67,7 @@ describe("CODEX-002-RECHECK-R2 maintenance subprocess", () => {
   afterAll(async () => {
     if (replayDeletionId) await prisma.deletionRequest.delete({ where: { id: replayDeletionId } }).catch(() => undefined);
     if (replayAccountId) await prisma.account.delete({ where: { id: replayAccountId } }).catch(() => undefined);
+    if (replaySentinelId) await prisma.account.delete({ where: { id: replaySentinelId } }).catch(() => undefined);
     if (snapshotId) await prisma.sourcePolicySnapshot.delete({ where: { id: snapshotId } }).catch(() => undefined);
     if (sourceId) await prisma.source.delete({ where: { id: sourceId } }).catch(() => undefined);
     if (actorId) {
@@ -112,6 +114,13 @@ describe("CODEX-002-RECHECK-R2 maintenance subprocess", () => {
       sourceUrl: "https://example.com/recheck-r3/source", capturedAt: new Date(), isDemo: true,
     } });
     replayAccountId = account.id;
+    const sentinel = await prisma.account.create({ data: {
+      id: "00000000-0000-4000-9000-000000000002", platform: "X", nativeId: `recheck-r3-sentinel-${randomUUID()}`,
+      displayName: "R3 checkpoint sentinel", profileUrl: "https://example.com/recheck-r3/sentinel",
+      normalizedProfileUrl: "https://example.com/recheck-r3/sentinel", serviceTags: ["R3"], sourceId,
+      sourceUrl: "https://example.com/recheck-r3/source", capturedAt: new Date(), isDemo: true,
+    } });
+    replaySentinelId = sentinel.id;
     const identity = stableIdentityFingerprints(account);
     const deletion = await prisma.deletionRequest.create({ data: {
       targetHash: suppressionFingerprint("ACCOUNT_ID", account.id), targetType: "ACCOUNT", accountId: account.id,

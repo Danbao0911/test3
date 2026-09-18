@@ -64,7 +64,7 @@ describe("CODEX-002-LATEST-REVIEW real PostgreSQL replay and identity rules", ()
   }, 30_000);
 
   it("扫描 205+205 全范围，跨批恢复、重复重放和旧指纹兼容均可验证", async () => {
-    const blockedInput = { platform: "X" as const, nativeId: `latest-old-v2-${randomUUID()}`, displayName: "LATEST old-v2 blocked", profileUrl: `https://example.com/latest/old-v2/${randomUUID()}`, organization: "LATEST", serviceTags: ["test"], region: "上海", sourceId, sourceUrl: "https://example.com/latest/source" };
+    const blockedInput = { platform: "X" as const, nativeId: `latest-old-v2-${randomUUID()}`, displayName: "LATEST old-v2 blocked", profileUrl: `https://example.com/demo/latest/old-v2/${randomUUID()}`, organization: "LATEST", serviceTags: ["test"], region: "上海", sourceId, sourceUrl: "https://example.com/latest/source" };
     const blockedUrl = normalizeProfileUrl(blockedInput.platform, blockedInput.profileUrl);
     const blockedIdentity = stableIdentityFingerprintsForKey({ platform: blockedInput.platform, nativeId: blockedInput.nativeId, normalizedProfileUrl: blockedUrl }, "old-v2");
     await prisma.deletionRequest.create({ data: { targetHash: createHash("sha256").update(`latest-old-v2-${blockedInput.nativeId}`).digest("hex"), targetType: "ACCOUNT", identityNativeFingerprint: blockedIdentity.nativeId, identityProfileFingerprint: blockedIdentity.profileUrl, identityType: "ACCOUNT_PLATFORM_IDENTITY_V2", identityVersion: 2, identityKeyId: "old-v2", scope: "ACCOUNT_REIMPORT_BLOCK", identityExpiresAt: new Date(Date.now() + 86_400_000), reason: "LATEST old-v2 online import test", requestedById: actorId, completedById: actorId } });
