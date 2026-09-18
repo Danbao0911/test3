@@ -1,5 +1,7 @@
 # CODEX-002 · 商务联系候选、证据核验与账号工作台
 
+最新 T08 前置研究及平台能力边界见 [CODEX-002-T08-REPORT.md](./CODEX-002-T08-REPORT.md)；平台许可与真实调用阻塞见 [SOURCE_REGISTER.md](./SOURCE_REGISTER.md)。真实平台调用继续关闭，T07-R1 剩余生命周期验收仍需完成。
+
 > R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；T05 账号工作台以 [`CODEX-002-T05-R1-REPORT.md`](./CODEX-002-T05-R1-REPORT.md) 为准；T06 初始交付以 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md) 为准，最新证据/有效性/撤销整改以 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md) 为准；T07 受控导出、删除与审计以 [`CODEX-002-T07-REPORT.md`](./CODEX-002-T07-REPORT.md) 为准。均追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。

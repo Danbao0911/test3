@@ -8,6 +8,7 @@ const links = [
   ["账号库", "/accounts"],
   ["导入中心", "/imports"],
   ["数据来源", "/sources"],
+  ["平台接入", "/platforms"],
   ["联系审核", "/reviews"],
   ["账号关联审核", "/account-links"],
   ["受控导出", "/exports"],
