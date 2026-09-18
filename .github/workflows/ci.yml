@@ -136,6 +136,7 @@ jobs:
       TEST_RUN_ID: ${{ github.run_id }}
       T10_RUN_ID: ${{ github.run_id }}
       T10_RECOVERY_ADMIN_URL: postgresql://test3_bootstrap:bootstrap-ci-only@127.0.0.1:5432/postgres
+      T10_PG_TOOL_IMAGE: postgres:17.6-alpine
       APP_MODE: test
       APP_ORIGIN: http://127.0.0.1:3100
       TEST_APP_ORIGIN: http://127.0.0.1:3100

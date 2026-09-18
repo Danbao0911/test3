@@ -31,8 +31,11 @@ function connectionArgs(connection: Connection, database = connection.database) 
 }
 
 async function runTool(tool: "pg_dump" | "pg_restore", args: string[], connection: Connection) {
+  const image = process.env.T10_PG_TOOL_IMAGE;
+  const command = image ? "docker" : tool;
+  const commandArgs = image ? ["run", "--rm", "--network", "host", "--env", "PGPASSWORD", image, tool, ...args] : args;
   try {
-    await execFileAsync(tool, args, { env: { ...process.env, PGPASSWORD: connection.password }, maxBuffer: 256 * 1024 });
+    await execFileAsync(command, commandArgs, { env: { ...process.env, PGPASSWORD: connection.password }, maxBuffer: 256 * 1024 });
   } catch (error) {
     const exitCode = typeof error === "object" && error && "code" in error ? String(error.code) : "unknown";
     throw new Error(`${tool} 执行失败（退出码 ${exitCode}）；未输出数据库工具原文`);
