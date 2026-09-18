@@ -59,7 +59,7 @@ async function lockSourceForRelating(tx: Prisma.TransactionClient, sourceId: str
 
 async function lockAccountPair(tx: Prisma.TransactionClient, leftAccountId: string, rightAccountId: string) {
   const [left, right] = canonicalAccountPair(leftAccountId, rightAccountId);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:account-link:${left}:${right}`}))`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:account-link:${left}:${right}`}))::text AS locked`;
   await tx.$queryRaw`SELECT "id" FROM "Account" WHERE "id" IN (${left}::uuid, ${right}::uuid) ORDER BY "id" FOR UPDATE`;
   const accounts = await tx.account.findMany({ where: { id: { in: [left, right] } }, select: { id: true } });
   if (accounts.length !== 2) throw new AccountLinkError("ACCOUNT_NOT_FOUND", "待关联账号不存在", 404);
