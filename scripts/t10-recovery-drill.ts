@@ -30,10 +30,11 @@ function connectionArgs(connection: Connection, database = connection.database) 
   return ["--host", connection.host, "--port", connection.port, "--username", connection.username, "--dbname", database];
 }
 
-async function runTool(tool: "pg_dump" | "pg_restore", args: string[], connection: Connection) {
+async function runTool(tool: "pg_dump" | "pg_restore", args: string[], connection: Connection, mountedWorkdir?: string) {
   const image = process.env.T10_PG_TOOL_IMAGE;
   const command = image ? "docker" : tool;
-  const commandArgs = image ? ["run", "--rm", "--network", "host", "--env", "PGPASSWORD", image, tool, ...args] : args;
+  const mappedArgs = image && mountedWorkdir ? args.map((arg) => arg.startsWith(`${mountedWorkdir}/`) ? `/t10-work/${arg.slice(mountedWorkdir.length + 1)}` : arg) : args;
+  const commandArgs = image ? ["run", "--rm", "--network", "host", ...(mountedWorkdir ? ["--volume", `${mountedWorkdir}:/t10-work`] : []), "--env", "PGPASSWORD", image, tool, ...mappedArgs] : args;
   try {
     await execFileAsync(command, commandArgs, { env: { ...process.env, PGPASSWORD: connection.password }, maxBuffer: 256 * 1024 });
   } catch (error) {
@@ -174,14 +175,14 @@ async function main() {
   let targetCreated = false;
   try {
     fixtureItem = await fixture();
-    await runTool("pg_dump", [...connectionArgs(source), "--format=custom", "--no-owner", "--no-acl", "--file", baseDump], source);
+    await runTool("pg_dump", [...connectionArgs(source), "--format=custom", "--no-owner", "--no-acl", "--file", baseDump], source, workdir);
     await deleteTarget(sourcePrisma, fixtureItem.user.id, { accountId: fixtureItem.account.id, reason: "T10 synthetic recovery drill", confirm: true });
-    await runTool("pg_dump", [...connectionArgs(source), "--format=custom", "--data-only", "--no-owner", "--no-acl", `--table=public."ContactSuppression"`, `--table=public."DeletionRequest"`, "--file", rulesDump], source);
+    await runTool("pg_dump", [...connectionArgs(source), "--format=custom", "--data-only", "--no-owner", "--no-acl", `--table=public."ContactSuppression"`, `--table=public."DeletionRequest"`, "--file", rulesDump], source, workdir);
     await createDatabase(admin, targetName, source.username);
     targetCreated = true;
     const restoredConnection = parseConnection(targetUrl(source, targetName), "恢复数据库");
-    await runTool("pg_restore", [...connectionArgs(restoredConnection), "--exit-on-error", "--no-owner", "--no-acl", baseDump], restoredConnection);
-    await runTool("pg_restore", [...connectionArgs(restoredConnection), "--exit-on-error", "--data-only", "--no-owner", "--no-acl", rulesDump], restoredConnection);
+    await runTool("pg_restore", [...connectionArgs(restoredConnection), "--exit-on-error", "--no-owner", "--no-acl", baseDump], restoredConnection, workdir);
+    await runTool("pg_restore", [...connectionArgs(restoredConnection), "--exit-on-error", "--data-only", "--no-owner", "--no-acl", rulesDump], restoredConnection, workdir);
     target = newPrisma(restoredConnection.url.toString());
     const first = await replayDeletionRules(target, fixtureItem.user.id, { batchSize: 1, now: new Date() });
     const remainingAccount = await target.account.findUnique({ where: { id: fixtureItem.account.id }, select: { id: true } });
