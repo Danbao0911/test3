@@ -58,6 +58,7 @@ test("T05-R1 工作台保存冲突、备注草稿保留和收藏筛选刷新", a
     await page.getByRole("button", { name: "收藏账号" }).click();
     await expect(page.getByRole("button", { name: "取消收藏" })).toBeVisible();
     await page.goto("/accounts");
+    await page.getByLabel("搜索已入库账号").fill(accountName);
     await page.getByLabel("收藏").selectOption("YES");
     await page.getByRole("button", { name: "筛选" }).click();
     const accountRow = page.getByRole("row", { name: accountName });
