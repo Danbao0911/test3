@@ -2,6 +2,8 @@
 
 最新 T08 前置研究及 T09 小红书/抖音授权边界见 [CODEX-002-T08-REPORT.md](./CODEX-002-T08-REPORT.md) 和 [CODEX-002-T09-REPORT.md](./CODEX-002-T09-REPORT.md)；T10 隔离预检与备份/恢复重放见 [CODEX-002-T10-REPORT.md](./CODEX-002-T10-REPORT.md) 和 [T10-RUNBOOK.md](./T10-RUNBOOK.md)。T10 实现 SHA 为 `d4d9ea54a8eb7b39b940ab40ee201d3bdcad15b9`，对应隔离 [Push CI 35360789725](https://github.com/Danbao0911/test3/actions/runs/35360789725) 和 [PR CI 35360799409](https://github.com/Danbao0911/test3/actions/runs/35360799409)。平台许可、生产告警和真实调用阻塞见 [SOURCE_REGISTER.md](./SOURCE_REGISTER.md)。真实平台调用、生产联系人处理和生产部署继续关闭。
 
+最新 R3 生命周期复核见 [`CODEX-002-RECHECK-R3-REPORT.md`](./CODEX-002-RECHECK-R3-REPORT.md)：实现提交 `ca1e2a8e17e8835dc07ea969f2e70d20b563d395`，最终 Push/PR CI `35366235442` 通过 unit 141、integration 70、E2E 10，失败/跳过均为 0。R3 只在隔离 PostgreSQL 验证 checkpoint 模式安全、历史 HMAC key 在线一致性、非空规则恢复和清理失败处理；T08/T09、生产调度、真实平台调用、真实联系人提取/批准继续关闭。
+
 > R1 第二部分审查整改以 [`CODEX-002-R1-REPORT.md`](./CODEX-002-R1-REPORT.md) 为准；T05 账号工作台以 [`CODEX-002-T05-R1-REPORT.md`](./CODEX-002-T05-R1-REPORT.md) 为准；T06 初始交付以 [`CODEX-002-T06-REPORT.md`](./CODEX-002-T06-REPORT.md) 为准，最新证据/有效性/撤销整改以 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md) 为准；T07 受控导出、删除与审计以 [`CODEX-002-T07-REPORT.md`](./CODEX-002-T07-REPORT.md) 为准。均追加到 [PR #2](https://github.com/Danbao0911/test3/pull/2)。
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
