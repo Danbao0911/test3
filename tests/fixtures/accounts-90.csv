@@ -1,0 +1,91 @@
+platform,nativeId,displayName,profileUrl,organization,serviceTags,region,sourceUrl
+XIAOHONGSHU,xhs-001,虚构小红书账号 001,https://example.com/demo/xiaohongshu/001,虚构机构 001,海外资产配置|财富规划,新加坡,https://example.com/demo/source/001
+XIAOHONGSHU,xhs-002,虚构小红书账号 002,https://example.com/demo/xiaohongshu/002,虚构机构 002,海外资产配置|财富规划,香港,https://example.com/demo/source/002
+XIAOHONGSHU,xhs-003,虚构小红书账号 003,https://example.com/demo/xiaohongshu/003,虚构机构 003,海外资产配置|财富规划,东京,https://example.com/demo/source/003
+XIAOHONGSHU,xhs-004,虚构小红书账号 004,https://example.com/demo/xiaohongshu/004,虚构机构 004,海外资产配置|财富规划,伦敦,https://example.com/demo/source/004
+XIAOHONGSHU,xhs-005,虚构小红书账号 005,https://example.com/demo/xiaohongshu/005,虚构机构 005,海外资产配置|财富规划,悉尼,https://example.com/demo/source/005
+XIAOHONGSHU,xhs-006,虚构小红书账号 006,https://example.com/demo/xiaohongshu/006,虚构机构 006,海外资产配置|财富规划,新加坡,https://example.com/demo/source/006
+XIAOHONGSHU,xhs-007,虚构小红书账号 007,https://example.com/demo/xiaohongshu/007,虚构机构 007,海外资产配置|财富规划,香港,https://example.com/demo/source/007
+XIAOHONGSHU,xhs-008,虚构小红书账号 008,https://example.com/demo/xiaohongshu/008,虚构机构 008,海外资产配置|财富规划,东京,https://example.com/demo/source/008
+XIAOHONGSHU,xhs-009,虚构小红书账号 009,https://example.com/demo/xiaohongshu/009,虚构机构 009,海外资产配置|财富规划,伦敦,https://example.com/demo/source/009
+XIAOHONGSHU,xhs-010,虚构小红书账号 010,https://example.com/demo/xiaohongshu/010,虚构机构 010,海外资产配置|财富规划,悉尼,https://example.com/demo/source/010
+XIAOHONGSHU,xhs-011,虚构小红书账号 011,https://example.com/demo/xiaohongshu/011,虚构机构 011,海外资产配置|财富规划,新加坡,https://example.com/demo/source/011
+XIAOHONGSHU,xhs-012,虚构小红书账号 012,https://example.com/demo/xiaohongshu/012,虚构机构 012,海外资产配置|财富规划,香港,https://example.com/demo/source/012
+XIAOHONGSHU,xhs-013,虚构小红书账号 013,https://example.com/demo/xiaohongshu/013,虚构机构 013,海外资产配置|财富规划,东京,https://example.com/demo/source/013
+XIAOHONGSHU,xhs-014,虚构小红书账号 014,https://example.com/demo/xiaohongshu/014,虚构机构 014,海外资产配置|财富规划,伦敦,https://example.com/demo/source/014
+XIAOHONGSHU,xhs-015,虚构小红书账号 015,https://example.com/demo/xiaohongshu/015,虚构机构 015,海外资产配置|财富规划,悉尼,https://example.com/demo/source/015
+YOUTUBE,yt-001,虚构 YouTube 账号 001,https://example.com/demo/youtube/001,虚构机构 016,财富规划|家族办公室,新加坡,https://example.com/demo/source/016
+YOUTUBE,yt-002,虚构 YouTube 账号 002,https://example.com/demo/youtube/002,虚构机构 017,财富规划|家族办公室,香港,https://example.com/demo/source/017
+YOUTUBE,yt-003,虚构 YouTube 账号 003,https://example.com/demo/youtube/003,虚构机构 018,财富规划|家族办公室,东京,https://example.com/demo/source/018
+YOUTUBE,yt-004,虚构 YouTube 账号 004,https://example.com/demo/youtube/004,虚构机构 019,财富规划|家族办公室,伦敦,https://example.com/demo/source/019
+YOUTUBE,yt-005,虚构 YouTube 账号 005,https://example.com/demo/youtube/005,虚构机构 020,财富规划|家族办公室,悉尼,https://example.com/demo/source/020
+YOUTUBE,yt-006,虚构 YouTube 账号 006,https://example.com/demo/youtube/006,虚构机构 021,财富规划|家族传承,新加坡,https://example.com/demo/source/021
+YOUTUBE,yt-007,虚构 YouTube 账号 007,https://example.com/demo/youtube/007,虚构机构 022,财富规划|家族传承,香港,https://example.com/demo/source/022
+YOUTUBE,yt-008,虚构 YouTube 账号 008,https://example.com/demo/youtube/008,虚构机构 023,财富规划|家族传承,东京,https://example.com/demo/source/023
+YOUTUBE,yt-009,虚构 YouTube 账号 009,https://example.com/demo/youtube/009,虚构机构 024,财富规划|家族传承,伦敦,https://example.com/demo/source/024
+YOUTUBE,yt-010,虚构 YouTube 账号 010,https://example.com/demo/youtube/010,虚构机构 025,财富规划|家族传承,悉尼,https://example.com/demo/source/025
+YOUTUBE,yt-011,虚构 YouTube 账号 011,https://example.com/demo/youtube/011,虚构机构 026,财富规划|信托规划,新加坡,https://example.com/demo/source/026
+YOUTUBE,yt-012,虚构 YouTube 账号 012,https://example.com/demo/youtube/012,虚构机构 027,财富规划|信托规划,香港,https://example.com/demo/source/027
+YOUTUBE,yt-013,虚构 YouTube 账号 013,https://example.com/demo/youtube/013,虚构机构 028,财富规划|信托规划,东京,https://example.com/demo/source/028
+YOUTUBE,yt-014,虚构 YouTube 账号 014,https://example.com/demo/youtube/014,虚构机构 029,财富规划|信托规划,伦敦,https://example.com/demo/source/029
+YOUTUBE,yt-015,虚构 YouTube 账号 015,https://example.com/demo/youtube/015,虚构机构 030,财富规划|信托规划,悉尼,https://example.com/demo/source/030
+X,x-001,虚构 X 账号 001,https://example.com/demo/x/001,虚构机构 031,私董会|企业家社群,新加坡,https://example.com/demo/source/031
+X,x-002,虚构 X 账号 002,https://example.com/demo/x/002,虚构机构 032,私董会|企业家社群,香港,https://example.com/demo/source/032
+X,x-003,虚构 X 账号 003,https://example.com/demo/x/003,虚构机构 033,私董会|企业家社群,东京,https://example.com/demo/source/033
+X,x-004,虚构 X 账号 004,https://example.com/demo/x/004,虚构机构 034,私董会|企业家社群,伦敦,https://example.com/demo/source/034
+X,x-005,虚构 X 账号 005,https://example.com/demo/x/005,虚构机构 035,私董会|企业家社群,悉尼,https://example.com/demo/source/035
+X,x-006,虚构 X 账号 006,https://example.com/demo/x/006,虚构机构 036,海外资产配置|私董会,新加坡,https://example.com/demo/source/036
+X,x-007,虚构 X 账号 007,https://example.com/demo/x/007,虚构机构 037,海外资产配置|私董会,香港,https://example.com/demo/source/037
+X,x-008,虚构 X 账号 008,https://example.com/demo/x/008,虚构机构 038,海外资产配置|私董会,东京,https://example.com/demo/source/038
+X,x-009,虚构 X 账号 009,https://example.com/demo/x/009,虚构机构 039,海外资产配置|私董会,伦敦,https://example.com/demo/source/039
+X,x-010,虚构 X 账号 010,https://example.com/demo/x/010,虚构机构 040,海外资产配置|私董会,悉尼,https://example.com/demo/source/040
+X,x-011,虚构 X 账号 011,https://example.com/demo/x/011,虚构机构 041,全球资产配置|企业家社群,新加坡,https://example.com/demo/source/041
+X,x-012,虚构 X 账号 012,https://example.com/demo/x/012,虚构机构 042,全球资产配置|企业家社群,香港,https://example.com/demo/source/042
+X,x-013,虚构 X 账号 013,https://example.com/demo/x/013,虚构机构 043,全球资产配置|企业家社群,东京,https://example.com/demo/source/043
+X,x-014,虚构 X 账号 014,https://example.com/demo/x/014,虚构机构 044,全球资产配置|企业家社群,伦敦,https://example.com/demo/source/044
+X,x-015,虚构 X 账号 015,https://example.com/demo/x/015,虚构机构 045,全球资产配置|企业家社群,悉尼,https://example.com/demo/source/045
+DOUYIN,douyin-001,虚构抖音账号 001,https://example.com/demo/douyin/001,虚构机构 046,海外资产配置|信托规划,新加坡,https://example.com/demo/source/046
+DOUYIN,douyin-002,虚构抖音账号 002,https://example.com/demo/douyin/002,虚构机构 047,海外资产配置|信托规划,香港,https://example.com/demo/source/047
+DOUYIN,douyin-003,虚构抖音账号 003,https://example.com/demo/douyin/003,虚构机构 048,海外资产配置|信托规划,东京,https://example.com/demo/source/048
+DOUYIN,douyin-004,虚构抖音账号 004,https://example.com/demo/douyin/004,虚构机构 049,海外资产配置|信托规划,伦敦,https://example.com/demo/source/049
+DOUYIN,douyin-005,虚构抖音账号 005,https://example.com/demo/douyin/005,虚构机构 050,海外资产配置|信托规划,悉尼,https://example.com/demo/source/050
+DOUYIN,douyin-006,虚构抖音账号 006,https://example.com/demo/douyin/006,虚构机构 051,家族传承|财富规划,新加坡,https://example.com/demo/source/051
+DOUYIN,douyin-007,虚构抖音账号 007,https://example.com/demo/douyin/007,虚构机构 052,家族传承|财富规划,香港,https://example.com/demo/source/052
+DOUYIN,douyin-008,虚构抖音账号 008,https://example.com/demo/douyin/008,虚构机构 053,家族传承|财富规划,东京,https://example.com/demo/source/053
+DOUYIN,douyin-009,虚构抖音账号 009,https://example.com/demo/douyin/009,虚构机构 054,家族传承|财富规划,伦敦,https://example.com/demo/source/054
+DOUYIN,douyin-010,虚构抖音账号 010,https://example.com/demo/douyin/010,虚构机构 055,家族传承|财富规划,悉尼,https://example.com/demo/source/055
+DOUYIN,douyin-011,虚构抖音账号 011,https://example.com/demo/douyin/011,虚构机构 056,家族办公室|企业家社群,新加坡,https://example.com/demo/source/056
+DOUYIN,douyin-012,虚构抖音账号 012,https://example.com/demo/douyin/012,虚构机构 057,家族办公室|企业家社群,香港,https://example.com/demo/source/057
+DOUYIN,douyin-013,虚构抖音账号 013,https://example.com/demo/douyin/013,虚构机构 058,家族办公室|企业家社群,东京,https://example.com/demo/source/058
+DOUYIN,douyin-014,虚构抖音账号 014,https://example.com/demo/douyin/014,虚构机构 059,家族办公室|企业家社群,伦敦,https://example.com/demo/source/059
+DOUYIN,douyin-015,虚构抖音账号 015,https://example.com/demo/douyin/015,虚构机构 060,家族办公室|企业家社群,悉尼,https://example.com/demo/source/060
+XIAOHONGSHU,xhs-001,虚构小红书账号 001,https://example.com/demo/xiaohongshu/001,虚构机构 001,海外资产配置|财富规划,新加坡,https://example.com/demo/source/001
+XIAOHONGSHU,xhs-002,虚构小红书账号 002,https://example.com/demo/xiaohongshu/002,虚构机构 002,海外资产配置|财富规划,香港,https://example.com/demo/source/002
+XIAOHONGSHU,xhs-003,虚构小红书账号 003,https://example.com/demo/xiaohongshu/003,虚构机构 003,海外资产配置|财富规划,东京,https://example.com/demo/source/003
+XIAOHONGSHU,xhs-004,虚构小红书账号 004,https://example.com/demo/xiaohongshu/004,虚构机构 004,海外资产配置|财富规划,伦敦,https://example.com/demo/source/004
+XIAOHONGSHU,xhs-005,虚构小红书账号 005,https://example.com/demo/xiaohongshu/005,虚构机构 005,海外资产配置|财富规划,悉尼,https://example.com/demo/source/005
+XIAOHONGSHU,xhs-006,虚构小红书账号 006,https://example.com/demo/xiaohongshu/006,虚构机构 006,海外资产配置|财富规划,新加坡,https://example.com/demo/source/006
+XIAOHONGSHU,xhs-007,虚构小红书账号 007,https://example.com/demo/xiaohongshu/007,虚构机构 007,海外资产配置|财富规划,香港,https://example.com/demo/source/007
+XIAOHONGSHU,xhs-008,虚构小红书账号 008,https://example.com/demo/xiaohongshu/008,虚构机构 008,海外资产配置|财富规划,东京,https://example.com/demo/source/008
+XIAOHONGSHU,xhs-009,虚构小红书账号 009,https://example.com/demo/xiaohongshu/009,虚构机构 009,海外资产配置|财富规划,伦敦,https://example.com/demo/source/009
+XIAOHONGSHU,xhs-010,虚构小红书账号 010,https://example.com/demo/xiaohongshu/010,虚构机构 010,海外资产配置|财富规划,悉尼,https://example.com/demo/source/010
+XIAOHONGSHU,xhs-011,虚构小红书账号 011,https://example.com/demo/xiaohongshu/011,虚构机构 011,海外资产配置|财富规划,新加坡,https://example.com/demo/source/011
+XIAOHONGSHU,xhs-012,虚构小红书账号 012,https://example.com/demo/xiaohongshu/012,虚构机构 012,海外资产配置|财富规划,香港,https://example.com/demo/source/012
+XIAOHONGSHU,xhs-013,虚构小红书账号 013,https://example.com/demo/xiaohongshu/013,虚构机构 013,海外资产配置|财富规划,东京,https://example.com/demo/source/013
+XIAOHONGSHU,xhs-014,虚构小红书账号 014,https://example.com/demo/xiaohongshu/014,虚构机构 014,海外资产配置|财富规划,伦敦,https://example.com/demo/source/014
+XIAOHONGSHU,xhs-015,虚构小红书账号 015,https://example.com/demo/xiaohongshu/015,虚构机构 015,海外资产配置|财富规划,悉尼,https://example.com/demo/source/015
+YOUTUBE,yt-001,虚构 YouTube 账号 001,https://example.com/demo/youtube/001,虚构机构 016,财富规划|家族办公室,新加坡,https://example.com/demo/source/016
+YOUTUBE,yt-002,虚构 YouTube 账号 002,https://example.com/demo/youtube/002,虚构机构 017,财富规划|家族办公室,香港,https://example.com/demo/source/017
+YOUTUBE,yt-003,虚构 YouTube 账号 003,https://example.com/demo/youtube/003,虚构机构 018,财富规划|家族办公室,东京,https://example.com/demo/source/018
+YOUTUBE,yt-004,虚构 YouTube 账号 004,https://example.com/demo/youtube/004,虚构机构 019,财富规划|家族办公室,伦敦,https://example.com/demo/source/019
+YOUTUBE,yt-005,虚构 YouTube 账号 005,https://example.com/demo/youtube/005,虚构机构 020,财富规划|家族办公室,悉尼,https://example.com/demo/source/020
+INVALID,invalid-001,虚构无效平台,https://example.com/demo/invalid/001,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-001
+YOUTUBE,missing-name,,https://example.com/demo/youtube/invalid-002,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-002
+YOUTUBE,http-001,HTTP 链接无效,https://example.com/demo/youtube/invalid-003,虚构机构,财富规划,新加坡,http://example.com/demo/source/invalid-003
+YOUTUBE,not-demo,非演示路径,https://example.com/not-demo/youtube,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-004
+X,search-001,搜索页不是主页,https://x.com/search?q=wealth,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-005
+DOUYIN,video-001,视频页不是主页,https://www.douyin.com/video/123,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-006
+XIAOHONGSHU,post-001,帖子页不是主页,https://www.xiaohongshu.com/explore/123,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-007
+YOUTUBE,too-many-tags,标签数量超限,https://example.com/demo/youtube/invalid-008,虚构机构,a|b|c|d|e|f|g|h|i|j|k,新加坡,https://example.com/demo/source/invalid-008
+YOUTUBE,no-profile,缺少主页链接,,虚构机构,财富规划,新加坡,https://example.com/demo/source/invalid-009
+YOUTUBE,bad-source,来源链接无效,https://example.com/demo/youtube/invalid-010,虚构机构,财富规划,新加坡,https://localhost/source/invalid-010

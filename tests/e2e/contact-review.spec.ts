@@ -1,0 +1,111 @@
+import { randomUUID } from "node:crypto";
+import { test, expect } from "@playwright/test";
+import { requireE2EConfig } from "../helpers/e2e-config";
+
+const { email, password } = requireE2EConfig();
+
+test("来源独立授权—单条录入—联系提取—证据核验—失效—撤权", async ({ page }) => {
+  const suffix = randomUUID();
+  const sourceName = `联系 E2E ${suffix}`;
+  await page.goto("/login");
+  await page.getByLabel("管理员邮箱").fill(email);
+  await page.getByLabel("密码").fill(password);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/accounts$/);
+  await page.goto("/sources");
+  await page.getByLabel("来源名称").fill(sourceName);
+  await page.getByLabel("允许录入依据说明").fill("虚构联系字段和最小证据文本，仅本轮 E2E 使用");
+  await page.getByRole("button", { name: "创建 DRAFT 来源" }).click();
+  const row = page.locator("tbody tr").filter({ hasText: sourceName });
+  await row.getByRole("button", { name: "批准录入" }).click();
+  await expect(row).toContainText("APPROVED");
+  await row.getByRole("button", { name: "编辑策略" }).click();
+  await row.getByLabel("允许联系提取", { exact: true }).check();
+  await row.getByLabel("允许保留最小证据文本").check();
+  await row.getByRole("button", { name: "保存策略" }).click();
+  await expect(row).toContainText("联系提取：允许");
+  const sourceId = await row.getAttribute("data-source-id");
+  await page.goto("/accounts/new");
+  await page.getByLabel("平台", { exact: true }).selectOption("YOUTUBE");
+  await page.getByLabel("账号名称").fill(`虚构联系账号 ${suffix}`);
+  await page.getByLabel("账号主页 HTTPS 链接").fill(`https://example.com/demo/youtube/contact-${suffix}`);
+  await page.getByLabel("数据来源", { exact: true }).selectOption(sourceId!);
+  await page.getByLabel("来源页面 HTTPS 链接").fill(`https://example.com/demo/source/contact-${suffix}`);
+  await page.getByRole("button", { name: "保存账号" }).click();
+  await page.getByRole("link", { name: "商务联系与证据" }).click();
+  await expect(page).toHaveURL(/\/contacts$/);
+  const contactPage = page.url();
+  await page.getByLabel("本字段证据 HTTPS 地址").fill("https://example.com/demo/contact-proof");
+  await page.getByLabel("取得时间").fill(new Date(Date.now() - 3600000).toISOString().slice(0, 16));
+  await page.getByLabel("字段位置", { exact: true }).fill("简介商务栏");
+  await page.getByLabel("获准处理的最小文本").fill("商务邮箱：e2e-review@example.com\n商务微信：demo_e2e");
+  await page.getByRole("button", { name: "提取待审核候选" }).click();
+  await expect(page.getByText(/新增 2 条/)).toBeVisible();
+  const contact = page.locator("article").filter({ hasText: "e2e-review@example.com" });
+  await expect(contact).toContainText("待审核");
+  await expect(contact.getByRole("button", { name: "确认通过" })).toBeDisabled();
+  await expect(contact.getByRole("link", { name: "主动打开字段证据" })).toHaveAttribute("href", "https://example.com/demo/contact-proof");
+  await contact.getByLabel("已核对联系项归属本账号/机构").check();
+  await contact.getByLabel("已核对明确商务用途").check();
+  await contact.getByLabel("审核原因").fill("已核对本账号明确商务栏");
+  await contact.getByRole("button", { name: "确认通过" }).click();
+  await expect(contact).toContainText("核验可用");
+  await page.getByLabel("审核状态").selectOption("APPROVED");
+  await expect(page.locator("article")).toHaveCount(1);
+  await contact.getByLabel("审核原因").fill("虚构失效核验");
+  await contact.getByRole("button", { name: "标记失效" }).click();
+  await expect(page.locator("article")).toHaveCount(0);
+  await page.getByLabel("审核状态").selectOption("INVALID");
+  await expect(contact).toContainText("当前不可用");
+  await page.goto("/sources");
+  await row.getByRole("button", { name: "撤销" }).click();
+  await expect(row).toContainText("REVOKED");
+  await page.goto(contactPage);
+  await expect(page.locator("article")).toHaveCount(2);
+  await expect(page.locator("article").filter({ hasText: "e2e-review@example.com" })).toHaveCount(0);
+  await expect(page.locator("article").first()).toContainText("已隐藏");
+});
+
+test("两个浏览器上下文编辑同一来源时拒绝旧策略覆盖", async ({ page, browser }) => {
+  const suffix = randomUUID();
+  const sourceName = `策略冲突 E2E ${suffix}`;
+  const secondContext = await browser.newContext();
+  const second = await secondContext.newPage();
+  async function login(target: typeof page) {
+    await target.goto("/login");
+    await target.getByLabel("管理员邮箱").fill(email);
+    await target.getByLabel("密码").fill(password);
+    await target.getByRole("button", { name: "登录", exact: true }).click();
+    await expect(target).toHaveURL(/\/accounts$/);
+  }
+  try {
+    await login(page); await page.goto("/sources");
+    await page.getByLabel("来源名称").fill(sourceName);
+    await page.getByLabel("允许录入依据说明").fill("两个上下文的版本冲突测试");
+    await page.getByRole("button", { name: "创建 DRAFT 来源" }).click();
+    const rowA = page.locator("tbody tr").filter({ hasText: sourceName });
+    await rowA.getByRole("button", { name: "批准录入" }).click();
+    await expect(rowA).toContainText("APPROVED");
+    const sourceId = await rowA.getAttribute("data-source-id");
+    await login(second);
+    await second.goto("/sources");
+    const rowB = second.locator(`tr[data-source-id="${sourceId}"]`);
+    await expect(rowB).toContainText("策略 v2");
+    await rowA.getByRole("button", { name: "编辑策略" }).click();
+    await rowB.getByRole("button", { name: "编辑策略" }).click();
+    await rowB.getByLabel("允许联系提取", { exact: true }).check();
+    await rowB.getByLabel("允许保留最小证据文本").check();
+    await rowB.getByRole("button", { name: "保存策略" }).click();
+    await expect(rowB).toContainText("联系提取：允许");
+    await rowA.getByLabel("联系有效天数").fill("45");
+    await rowA.getByRole("button", { name: "保存策略" }).click();
+    await expect(page.locator("div.notice.error[role='alert']")).toContainText("策略已被其他管理员更新");
+    await expect(rowA).toContainText("联系提取：关闭");
+    await expect(rowA).toContainText("策略 v2");
+    await second.reload();
+    await expect(second.locator(`tr[data-source-id="${sourceId}"]`)).toContainText("策略 v3");
+    await expect(second.locator(`tr[data-source-id="${sourceId}"]`)).toContainText("联系提取：允许");
+  } finally {
+    await secondContext.close();
+  }
+});
