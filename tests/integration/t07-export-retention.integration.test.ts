@@ -230,9 +230,12 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     const fixture = await createFixture("T07 联系到期清理");
     const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME", "CONTACT_VALUE"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });
     expect(job.response.status).toBe(201);
+    expect(await prisma.evidence.count({ where: { accountId: fixture.accountId } })).toBe(1);
     await prisma.contactPoint.update({ where: { id: fixture.contactId }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    expect((await prisma.contactPoint.findUnique({ where: { id: fixture.contactId }, select: { expiresAt: true } }))?.expiresAt.getTime()).toBeLessThan(Date.now());
     const cleaned = await request("admin", "/api/retention/cleanup", { method: "POST", ...jsonBody({ batchSize: 1 }) });
     expect(cleaned.response.status).toBe(200);
+    expect(cleaned.data.item).toMatchObject({ contacts: 1 });
     expect(await prisma.evidence.count({ where: { accountId: fixture.accountId } })).toBe(0);
     expect(await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string } })).toBeNull();
     expect(await prisma.contactPoint.findUnique({ where: { id: fixture.contactId } })).toBeNull();
