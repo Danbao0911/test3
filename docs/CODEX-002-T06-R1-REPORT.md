@@ -36,11 +36,11 @@ R1 将 T06 初版的“理由即可确认”改为“关系专用证据 + 人工
 
 ## 验证记录
 
-本地已通过：`pnpm db:generate`、`pnpm exec prisma validate`、`pnpm lint`、`pnpm typecheck`、`pnpm test:unit`（99 通过，0 失败，0 跳过）、`pnpm exec next build --webpack`、`git diff --check`。本轮代码最终提交为 `ec7092bd20aba4127febb4dacbd80a9636c204fb`。
+本地已通过：`pnpm db:generate`、`pnpm exec prisma validate`、`pnpm lint`、`pnpm typecheck`、`pnpm test:unit`（99 通过，0 失败，0 跳过）、`pnpm exec next build --webpack`、`git diff --check`。本轮代码与测试最终提交为 `ee2a49838a9b75eb5ef4f225f3d856252b954b68`。
 
 本地 `pnpm test:integration` 按项目保护规则拒绝执行，因为当前 shell 没有 `TEST_DATABASE_URL`、`TEST_DATABASE_NAME`、`TEST_RUN_ID` 和 `APP_MODE=test`；没有访问或迁移任何数据库。本地 E2E 未运行，待 CI 隔离环境验证。
 
-真实 GitHub Actions 已完成：最终 Push CI 为 [35324745868](https://github.com/Danbao0911/test3/actions/runs/35324745868)，最终 PR CI 为 [35324751245](https://github.com/Danbao0911/test3/actions/runs/35324751245)，均对应上述完整 SHA，`verify` 与 `e2e` 两个 job 均通过。CI 统计为：unit 99 通过、integration 47 通过、E2E 7 通过；失败 0、跳过 0，迁移、lint、typecheck、默认 `pnpm build` 均通过。此前 35323517230、35323809931、35324099246、35324346322 是本轮修复过程中暴露并修正断言/迁移 fixture/既有筛选竞态的失败 run，不作为最终验收依据。
+真实 GitHub Actions 已完成：最终 Push CI 为 [35325485260](https://github.com/Danbao0911/test3/actions/runs/35325485260)，最终 PR CI 为 [35325489318](https://github.com/Danbao0911/test3/actions/runs/35325489318)，均对应上述完整 SHA，`verify` 与 `e2e` 两个 job 均通过。CI 统计为：unit 99 通过、integration 47 通过、E2E 7 通过；失败 0、跳过 0，迁移、lint、typecheck、默认 `pnpm build` 均通过。此前 35323517230、35323809931、35324099246、35324346322 是本轮修复过程中暴露并修正断言/迁移 fixture/既有筛选竞态的失败 run；35325088410 还暴露了 T05 E2E 在收藏请求完成前继续保存工作台的竞态，已在 `tests/e2e/account-import.spec.ts` 增加真实收藏接口成功断言并由上述最终 CI 验证通过。这些失败 run 均不作为最终验收依据。
 
 ## 未解决项
 
