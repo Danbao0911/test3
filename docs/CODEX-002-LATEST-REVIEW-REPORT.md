@@ -16,6 +16,8 @@
 
 最终 Push CI：[35349626419](https://github.com/Danbao0911/test3/actions/runs/35349626419)；最终 PR CI：[35349632722](https://github.com/Danbao0911/test3/actions/runs/35349632722)。两者的 `verify` 和 `e2e` 均成功。
 
+报告及 PR 描述随后追加到提交 `69b120a06f1ed49f41efc878a716695ccf05ade8`；该最终文档 HEAD 的 Push CI 为 [35350044972](https://github.com/Danbao0911/test3/actions/runs/35350044972)，PR CI 为 [35350052032](https://github.com/Danbao0911/test3/actions/runs/35350052032)，同样全部成功。
+
 ## R01–R07 修改与测试映射
 
 | 项目 | 实现位置 | 真实测试 |
