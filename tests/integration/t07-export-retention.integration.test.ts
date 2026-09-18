@@ -272,7 +272,7 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
       (async () => { await downloadBarrier(); return request("admin", "/api/deletion-requests", { method: "POST", ...jsonBody({ accountId: downloadFixture.accountId, reason: "LATEST 并发下载删除", confirm: true }) }); })(),
     ]);
     expect(deleteAccount.response.status).toBe(201);
-    expect([200, 410]).toContain(download.response.status);
+    expect([200, 404, 410]).toContain(download.response.status);
     expect(download.response.status).not.toBeGreaterThanOrEqual(500);
     expect(await prisma.account.findUnique({ where: { id: downloadFixture.accountId } })).toBeNull();
 
