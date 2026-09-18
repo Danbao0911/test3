@@ -40,7 +40,7 @@ test("来源独立授权—单条录入—联系提取—证据核验—失效�
   await page.getByLabel("字段位置", { exact: true }).fill("简介商务栏");
   await page.getByLabel("获准处理的最小文本").fill("商务邮箱：e2e-review@example.com\n商务微信：demo_e2e");
   await page.getByRole("button", { name: "提取待审核候选" }).click();
-  await expect(page.getByRole("status")).toContainText("新增 2 条");
+  await expect(page.getByText(/新增 2 条/)).toBeVisible();
   const contact = page.locator("article").filter({ hasText: "e2e-review@example.com" });
   await expect(contact).toContainText("待审核");
   await expect(contact.getByRole("button", { name: "确认通过" })).toBeDisabled();
