@@ -157,4 +157,21 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect(await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string } })).toBeNull();
     expect((await request("viewer", "/api/deletion-requests", { method: "GET" })).response.status).toBe(403);
   }, 60_000);
+
+  it("T07W05 管理员清理到期导出和抑制，VIEWER 不能触发清理", async () => {
+    const fixture = await createFixture("T07 清理任务账号");
+    const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [fixture.accountId] }) });
+    expect(job.response.status).toBe(201);
+    const suppressed = await request("reviewer", `/api/contacts/${fixture.contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "T07 清理任务测试" }) });
+    expect(suppressed.response.status).toBe(200);
+    const past = new Date(Date.now() - 60_000);
+    await prisma.exportJob.update({ where: { id: job.data.item!.id as string }, data: { expiresAt: past } });
+    await prisma.contactSuppression.updateMany({ where: { contactId: fixture.contactId }, data: { expiresAt: past } });
+    const cleaned = await request("admin", "/api/retention/cleanup", { method: "POST", ...jsonBody({}) });
+    expect(cleaned.response.status).toBe(200);
+    expect(cleaned.data.item).toMatchObject({ exports: 1, suppressions: 1 });
+    expect(await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string } })).toBeNull();
+    expect(await prisma.contactSuppression.count({ where: { contactId: fixture.contactId } })).toBe(0);
+    expect((await request("viewer", "/api/retention/cleanup", { method: "POST", ...jsonBody({}) })).response.status).toBe(403);
+  }, 45_000);
 });
