@@ -64,7 +64,7 @@ async function createFixture(displayName: string) {
   expect(sourceResponse.response.status).toBe(201);
   const sourceId = sourceResponse.data.item!.id as string;
   createdSourceIds.push(sourceId);
-  const approved = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: sourceResponse.data.item!.policyVersion, status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, allowExport: true }) });
+  const approved = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: sourceResponse.data.item!.policyVersion, status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, allowExport: true, allowedExportFields: ["DISPLAY_NAME", "CONTACT_VALUE", "SOURCE_URL"] }) });
   expect(approved.response.status).toBe(200);
   const accountResponse = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: `t07-${randomUUID()}`, displayName, profileUrl: `https://example.com/demo/x/${randomUUID()}`, organization: "T07 虚构机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: `https://example.com/demo/source/${randomUUID()}` }) });
   expect(accountResponse.response.status).toBe(201);
@@ -174,4 +174,78 @@ describe("CODEX-002-T07 real HTTP export, suppression and deletion contract", ()
     expect(await prisma.contactSuppression.count({ where: { contactId: fixture.contactId } })).toBe(0);
     expect((await request("viewer", "/api/retention/cleanup", { method: "POST", ...jsonBody({}) })).response.status).toBe(403);
   }, 45_000);
+
+  it("T07R1-R01 清单绑定旧联系项：同样行数的新联系人不能替换旧 token", async () => {
+    const fixture = await createFixture("T07 清单旧联系");
+    const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME", "CONTACT_VALUE"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });
+    expect(job.response.status).toBe(201);
+    await prisma.contactPoint.update({ where: { id: fixture.contactId }, data: { expiresAt: new Date(Date.now() - 1_000), status: "INVALID", ownershipConfirmed: false, businessConfirmed: false } });
+    const replacement = await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: fixture.accountId, sourceId: fixture.sourceId, sourceUrl: "https://example.com/demo/replacement", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "替换证据", context: "ACCOUNT_PROFILE", text: "商务邮箱：replacement@example.com" }) });
+    expect(replacement.response.status).toBe(200);
+    const contacts = await request("reviewer", `/api/contacts?accountId=${fixture.accountId}`);
+    const replacementId = (contacts.data.items ?? []).find((item) => item.id !== fixture.contactId)?.id as string;
+    expect(replacementId).toBeTruthy();
+    expect((await request("reviewer", `/api/contacts/${replacementId}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "替换证据人工核对" }) })).response.status).toBe(200);
+    const downloaded = await request("admin", job.data.item!.downloadUrl as string);
+    expect(downloaded.response.status).toBe(410);
+    expect((await responseData(downloaded.response)).raw ?? "").not.toContain(fixture.contactValue);
+    const stored = await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string }, select: { status: true, encryptedPayload: true } });
+    expect(stored).toMatchObject({ status: "REVOKED", encryptedPayload: "" });
+  }, 60_000);
+
+  it("T07R1-R02 来源版本变化和损坏密文均提交不可恢复终态", async () => {
+    const fixture = await createFixture("T07 导出版本");
+    const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });
+    expect(job.response.status).toBe(201);
+    const source = await request("admin", `/api/sources/${fixture.sourceId}`);
+    const changed = await request("admin", `/api/sources/${fixture.sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: source.data.item!.policyVersion, permissionNote: "T07 新版导出授权依据" }) });
+    expect(changed.response.status).toBe(200);
+    expect((await request("admin", job.data.item!.downloadUrl as string)).response.status).toBe(410);
+    expect((await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string }, select: { status: true } }))?.status).toBe("REVOKED");
+    const corrupted = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });
+    expect(corrupted.response.status).toBe(201);
+    await prisma.exportJob.update({ where: { id: corrupted.data.item!.id as string }, data: { encryptedPayload: "broken" } });
+    expect((await request("admin", corrupted.data.item!.downloadUrl as string)).response.status).toBe(410);
+    expect((await prisma.exportJob.findUnique({ where: { id: corrupted.data.item!.id as string }, select: { status: true } }))?.status).toBe("REVOKED");
+    expect(await prisma.auditEvent.count({ where: { targetId: corrupted.data.item!.id as string, action: "EXPORT_DOWNLOADED" } })).toBe(0);
+  }, 60_000);
+
+  it("T07R1-R04 同值跨账号抑制贯穿审核和导出", async () => {
+    const first = await createFixture("T07 同值账号 A");
+    const secondAccount = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: `t07-shared-${randomUUID()}`, displayName: "T07 同值账号 B", profileUrl: `https://example.com/demo/shared/${randomUUID()}`, organization: "T07 虚构机构", serviceTags: ["财富规划"], region: "上海", sourceId: first.sourceId, sourceUrl: "https://example.com/demo/source/shared" }) });
+    expect(secondAccount.response.status).toBe(201);
+    const secondId = secondAccount.data.item!.id as string;
+    createdAccountIds.push(secondId);
+    expect((await request("reviewer", "/api/contacts/extract", { method: "POST", ...jsonBody({ accountId: secondId, sourceId: first.sourceId, sourceUrl: "https://example.com/demo/shared-evidence", capturedAt: new Date(Date.now() - 60_000).toISOString(), fieldLocation: "共享联系方式", context: "ACCOUNT_PROFILE", text: `商务邮箱：${first.contactValue}` }) })).response.status).toBe(200);
+    const secondContacts = await request("reviewer", `/api/contacts?accountId=${secondId}`);
+    const secondContactId = secondContacts.data.items![0].id as string;
+    expect((await request("reviewer", `/api/contacts/${secondContactId}`, { method: "PATCH", ...jsonBody({ version: 1, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "共享值人工核对" }) })).response.status).toBe(200);
+    expect((await request("reviewer", `/api/contacts/${first.contactId}/suppression`, { method: "POST", ...jsonBody({ reasonCode: "DO_NOT_CONTACT", basis: "跨账号拒绝联系" }) })).response.status).toBe(200);
+    expect((await prisma.contactPoint.findUnique({ where: { id: secondContactId }, select: { status: true, suppressed: true } }))).toMatchObject({ status: "INVALID", suppressed: true });
+    expect((await request("reviewer", `/api/contacts/${secondContactId}`, { method: "PATCH", ...jsonBody({ version: 3, status: "APPROVED", ownershipConfirmed: true, businessConfirmed: true, reason: "尝试重新批准" }) })).response.status).toBe(409);
+    expect((await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["CONTACT_VALUE"], accountIds: [secondId] }) })).response.status).toBe(422);
+  }, 60_000);
+
+  it("T07R1-R03 联系到期会清理证据和未到期导出载荷", async () => {
+    const fixture = await createFixture("T07 联系到期清理");
+    const job = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME", "CONTACT_VALUE"], accountIds: [fixture.accountId], expiresInMinutes: 10 }) });
+    expect(job.response.status).toBe(201);
+    await prisma.contactPoint.update({ where: { id: fixture.contactId }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    const cleaned = await request("admin", "/api/retention/cleanup", { method: "POST", ...jsonBody({ batchSize: 1 }) });
+    expect(cleaned.response.status).toBe(200);
+    expect(await prisma.evidence.count({ where: { accountId: fixture.accountId } })).toBe(0);
+    expect(await prisma.exportJob.findUnique({ where: { id: job.data.item!.id as string } })).toBeNull();
+    expect(await prisma.contactPoint.findUnique({ where: { id: fixture.contactId } })).toBeNull();
+  }, 60_000);
+
+  it("T07R1-R07 最终行数和 JSON 请求体均有界", async () => {
+    const fixture = await createFixture("T07 行数上限");
+    const extra = await prisma.account.createManyAndReturn({ data: Array.from({ length: 501 }, (_, index) => ({ platform: "X" as const, nativeId: `t07-limit-${randomUUID()}`, displayName: `T07 limit ${index}`, profileUrl: `https://example.com/demo/limit/${randomUUID()}`, normalizedProfileUrl: `https://example.com/demo/limit/${randomUUID()}`, organization: "T07", serviceTags: ["limit"], region: "上海", sourceId: fixture.sourceId, sourceUrl: "https://example.com/demo/limit-source", capturedAt: new Date(), isDemo: true })) });
+    createdAccountIds.push(...extra.map((account) => account.id));
+    const tooMany = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], filters: { sourceId: fixture.sourceId } }) });
+    expect(tooMany.response.status).toBe(422);
+    expect(tooMany.data.error).toBe("EXPORT_TOO_LARGE");
+    const oversized = await request("admin", "/api/exports", { method: "POST", ...jsonBody({ fields: ["DISPLAY_NAME"], accountIds: [fixture.accountId], unexpected: "x".repeat(70_000) }) });
+    expect(oversized.response.status).toBe(413);
+  }, 60_000);
 });

@@ -12,8 +12,42 @@ function secretBytes(name: "SUPPRESSION_HMAC_KEY" | "EXPORT_ENCRYPTION_KEY") {
   return createHash("sha256").update(fallback).digest();
 }
 
+export const SUPPRESSION_FINGERPRINT_VERSION = 2;
+export const SUPPRESSION_FINGERPRINT_KEY_ID = process.env.SUPPRESSION_HMAC_KEY_ID ?? "default-v2";
+
+function normalizeSuppressionValue(type: string, value: string) {
+  const normalizedType = type.trim().toUpperCase();
+  const trimmed = value.trim();
+  // Email identity is case-insensitive. URL path/query/fragment and opaque
+  // business identifiers are not lower-cased without an explicit equivalence rule.
+  return normalizedType === "EMAIL" ? trimmed.toLowerCase() : trimmed;
+}
+
+function fingerprintFor(type: string, normalizedValue: string, valueNormalizer: (value: string) => string) {
+  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY"))
+    .update(`${type.trim().toUpperCase()}\0${valueNormalizer(normalizedValue)}`)
+    .digest("hex");
+}
+
 export function suppressionFingerprint(type: string, normalizedValue: string) {
-  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY")).update(`${type}\0${normalizedValue.trim().toLowerCase()}`).digest("hex");
+  return fingerprintFor(type, normalizedValue, (value) => normalizeSuppressionValue(type, value));
+}
+
+export function legacySuppressionFingerprint(type: string, normalizedValue: string) {
+  return fingerprintFor(type, normalizedValue, (value) => value.trim().toLowerCase());
+}
+
+export function suppressionFingerprintCandidates(type: string, normalizedValue: string) {
+  return [...new Set([suppressionFingerprint(type, normalizedValue), legacySuppressionFingerprint(type, normalizedValue)])];
+}
+
+export function stableIdentityFingerprint(input: { platform: string; nativeId?: string | null; normalizedProfileUrl: string }) {
+  const identity = `${input.platform.trim().toUpperCase()}\0${input.nativeId?.trim() ?? ""}\0${input.normalizedProfileUrl.trim()}`;
+  return createHmac("sha256", secretBytes("SUPPRESSION_HMAC_KEY")).update(`ACCOUNT_IDENTITY_V1\0${identity}`).digest("hex");
+}
+
+export function payloadDigest(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 export function createDownloadToken() {

@@ -15,6 +15,7 @@ const migrations = [
   "20260918200000_account_links/migration.sql",
   "20260918210000_account_link_evidence_history/migration.sql",
   "20260918220000_t07_export_suppression_deletion/migration.sql",
+  "20260918230000_t07_r1_export_lifecycle/migration.sql",
 ].map((relative) => readFileSync(path.join(process.cwd(), "prisma/migrations", relative), "utf8"));
 const schemaName = `policy_migration_${database.runId}_${randomUUID().replaceAll("-", "")}`;
 const sourceId = randomUUID();
@@ -55,6 +56,7 @@ describe("R04 policy snapshot incremental migration", () => {
     await client.query(migrations[5]);
     await client.query(migrations[6]);
     await client.query(migrations[7]);
+    await client.query(migrations[8]);
   }, 30_000);
 
   afterAll(async () => {
@@ -103,5 +105,9 @@ describe("R04 policy snapshot incremental migration", () => {
     expect(linkTables.rows).toEqual([{ evidence_rows: "0", decision_rows: "0" }]);
     const t07Tables = await client!.query(`SELECT (SELECT COUNT(*) FROM "ContactSuppression") AS suppression_rows, (SELECT COUNT(*) FROM "ExportJob") AS export_rows, (SELECT COUNT(*) FROM "DeletionRequest") AS deletion_rows`);
     expect(t07Tables.rows).toEqual([{ suppression_rows: "0", export_rows: "0", deletion_rows: "0" }]);
+    const additive = await client!.query(`SELECT "allowedExportFields" FROM "Source" WHERE "id" = $1`, [sourceId]);
+    expect(additive.rows).toEqual([{ allowedExportFields: [] }]);
+    const manifests = await client!.query(`SELECT COUNT(*) FROM "ExportJobManifest"`);
+    expect(manifests.rows).toEqual([{ count: "0" }]);
   });
 });

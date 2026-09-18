@@ -4,6 +4,8 @@
 
 范围：任务书 T04，并补齐其依赖的 T01 三角色/提取许可及 T02 证据、候选、审核关系。基于 `codex/001-account-import` 的 `b8a810f`，在 `codex/002-contact-review` 增量开发。[PR #2](https://github.com/Danbao0911/test3/pull/2) 已创建；PR #1 尚未合并，本轮 PR 以该功能分支为基线，不修改 main、不自动合并、不部署生产。
 
+T07-R1 正在继续追加到 PR #2，当前验收状态以 [`CODEX-002-T07-R1-REPORT.md`](./CODEX-002-T07-R1-REPORT.md) 为准；旧 T07 报告中的测试数字和 SHA 不覆盖本轮改动。
+
 ## 后续 T06 状态
 
 T06 初始去重与跨账号关联审核已追加到同一 PR；T06-R1 已在该分支补齐关系专用证据、当前有效性、稳定加锁、不可变决定历史、网页撤销、分页建议和请求体边界。详见 [`CODEX-002-T06-R1-REPORT.md`](./CODEX-002-T06-R1-REPORT.md)。最终实现与测试 SHA 为 `ee2a49838a9b75eb5ef4f225f3d856252b954b68`，Push CI `35325485260` 与 PR CI `35325489318` 均通过；unit 99、integration 47、E2E 7，失败/跳过均为 0。该绿色 CI 仅证明隔离 CI 验证通过，不代表生产上线。

@@ -12,10 +12,11 @@ describe("T07 retention and export guards", () => {
     expect(suppressionFingerprint("EMAIL", "person@example.com")).toBe(first);
     expect(suppressionFingerprint("PHONE", "person@example.com")).not.toBe(first);
     expect(first).not.toContain("example.com");
+    expect(suppressionFingerprint("CONTACT_URL", "https://example.com/Book#A")).not.toBe(suppressionFingerprint("CONTACT_URL", "https://example.com/book#a"));
   });
 
   it("encrypts/decrypts temporary payloads and neutralizes CSV formulas", () => {
-    const csv = buildCsv(["display_name", "contact_value"], [{ display_name: "=HYPERLINK(\"https://evil.test\")", contact_value: "+1 202 555 0100" }]);
+    const csv = buildCsv(["display_name", "contact_value", "note"], [{ display_name: "=HYPERLINK(\"https://evil.test\")", contact_value: "+1 202 555 0100", note: "line one\nline two" }]);
     expect(csv).toContain("'=HYPERLINK");
     expect(csv).toContain("+1 202 555 0100");
     expect(decryptPayload(encryptPayload(csv))).toBe(csv);

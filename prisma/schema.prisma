@@ -139,6 +139,7 @@ model Source {
   allowEvidenceText Boolean   @default(false)
   allowRelate    Boolean      @default(false)
   allowExport    Boolean      @default(false)
+  allowedExportFields String[] @default([]) @db.Text
   retentionDays  Int          @default(30)
   policyVersion  Int          @default(1)
   policyChangedById String?   @db.Uuid
@@ -149,6 +150,7 @@ model Source {
   accounts       Account[]
   importBatches  ImportBatch[]
   evidence       Evidence[]
+  exportManifestEntries ExportJobManifest[]
   policySnapshots SourcePolicySnapshot[]
   accountLinks   AccountLink[]
   accountLinkEvidence AccountLinkEvidence[]
@@ -179,6 +181,7 @@ model Account {
   owner                 User?       @relation("AccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   importRowResults      ImportRowResult[]
   evidence              Evidence[]
+  exportManifestEntries ExportJobManifest[]
   favorites             AccountFavorite[]
   followUp              AccountFollowUp?
   linksFrom             AccountLink[] @relation("AccountLinkLeft")
@@ -266,6 +269,7 @@ model SourcePolicySnapshot {
   allowEvidenceText Boolean?
   allowRelate      Boolean?
   allowExport      Boolean?
+  allowedExportFields String? @db.Text
   retentionDays     Int?
   expiresAt         DateTime?
   permissionNote    String?  @db.VarChar(2000)
@@ -278,6 +282,7 @@ model SourcePolicySnapshot {
   changedBy         User?    @relation("PolicySnapshotActor", fields: [changedById], references: [id], onDelete: Restrict)
   evidence          Evidence[]
   accountLinkEvidence AccountLinkEvidence[]
+  exportManifestEntries ExportJobManifest[]
 
   @@unique([sourceId, version])
   @@index([sourceId, recordedAt])
@@ -300,6 +305,7 @@ model Evidence {
   policySnapshot  SourcePolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
   contact         ContactPoint?
   accountLinkReferences AccountLinkEvidence[] @relation("AccountLinkReferenceEvidence")
+  exportManifestEntries ExportJobManifest[]
 
   @@index([accountId, createdAt])
   @@index([sourceId, policyVersion])
@@ -315,6 +321,7 @@ model ContactPoint {
   status              ContactStatus @default(PENDING)
   ownershipConfirmed  Boolean       @default(false)
   businessConfirmed   Boolean       @default(false)
+  suppressed          Boolean       @default(false)
   version             Int           @default(1)
   expiresAt           DateTime
   reviewedAt          DateTime?
@@ -325,6 +332,7 @@ model ContactPoint {
   deletionRequests     DeletionRequest[]
   linkBasisCandidates AccountLink[]  @relation("AccountLinkBasisContact")
   linkMatchingCandidates AccountLink[] @relation("AccountLinkMatchingContact")
+  exportManifestEntries ExportJobManifest[]
 
   @@index([status, createdAt, id])
   @@index([expiresAt])
@@ -372,6 +380,7 @@ model AccountLinkEvidence {
   policyVersion        Int
   policySnapshotId     String   @db.Uuid
   referenceEvidenceId  String?  @db.Uuid
+  referenceEvidenceMissing Boolean @default(false)
   sourceUrl            String   @db.VarChar(2048)
   capturedAt           DateTime
   fieldLocation        String   @db.VarChar(240)
@@ -451,6 +460,9 @@ model ContactSuppression {
   reasonCode     String        @db.VarChar(80)
   basis          String        @db.VarChar(500)
   expiresAt      DateTime
+  fingerprintVersion Int       @default(2)
+  fingerprintKeyId String       @default("default-v2") @db.VarChar(80)
+  scope           String       @default("CONTACT_VALUE_GLOBAL") @db.VarChar(80)
   createdById    String        @db.Uuid
   createdAt      DateTime      @default(now())
   account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -476,6 +488,9 @@ model ExportJob {
   downloadedAt     DateTime?
   createdAt        DateTime       @default(now())
   createdBy        User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  manifestEntries  ExportJobManifest[]
+  payloadDigest    String         @default("") @db.VarChar(64)
+  excludedReasonCounts String      @default("{}") @db.Text
 
   @@index([createdById, createdAt])
   @@index([expiresAt, status])
@@ -493,6 +508,12 @@ model DeletionRequest {
   completedById String                @db.Uuid
   requestedAt   DateTime              @default(now())
   completedAt   DateTime              @default(now())
+  identityFingerprint String?         @db.VarChar(64)
+  identityType  String?              @db.VarChar(40)
+  identityVersion Int                 @default(1)
+  identityKeyId String               @default("legacy") @db.VarChar(80)
+  scope         String               @default("LEGACY_UNKNOWN") @db.VarChar(80)
+  identityExpiresAt DateTime?
   account       Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
   contact       ContactPoint?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
   requestedBy   User                  @relation("DeletionRequester", fields: [requestedById], references: [id], onDelete: Restrict)
@@ -501,4 +522,31 @@ model DeletionRequest {
   @@index([targetHash, completedAt])
   @@index([accountId, completedAt])
   @@index([contactId, completedAt])
+  @@index([identityFingerprint, completedAt])
+}
+
+model ExportJobManifest {
+  id               String   @id @default(uuid()) @db.Uuid
+  exportJobId      String   @db.Uuid
+  rowNumber        Int
+  accountId        String   @db.Uuid
+  contactId        String?  @db.Uuid
+  contactVersion   Int?
+  evidenceId       String?  @db.Uuid
+  sourceId         String   @db.Uuid
+  policySnapshotId String?  @db.Uuid
+  policyVersion    Int
+  fieldSources     String   @db.Text
+  createdAt        DateTime @default(now())
+  exportJob        ExportJob @relation(fields: [exportJobId], references: [id], onDelete: Cascade)
+  account          Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact          ContactPoint? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  evidence         Evidence? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  source           Source @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  policySnapshot   SourcePolicySnapshot? @relation(fields: [policySnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([exportJobId, rowNumber])
+  @@index([accountId])
+  @@index([contactId])
+  @@index([sourceId, policyVersion])
 }

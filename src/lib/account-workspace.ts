@@ -8,7 +8,7 @@ export function accountWorkspaceInclude(userId: string) {
     owner: { select: { id: true, email: true, role: true } },
     favorites: { where: { userId }, select: { id: true }, take: 1 },
     followUp: { select: { status: true, note: true, updatedAt: true, updatedById: true } },
-    evidence: { select: { contact: { select: { status: true } } } },
+    evidence: { select: { contact: { select: { status: true, suppressed: true } } } },
   } satisfies Prisma.AccountInclude;
 }
 
@@ -43,7 +43,7 @@ export type AccountWorkspaceRecord = {
   owner: { id: string; email: string; role: string } | null;
   favorites: Array<{ id: string }>;
   followUp: { status: string; note: string; updatedAt: Date; updatedById: string | null } | null;
-  evidence: Array<{ contact: { status: string } | null }>;
+  evidence: Array<{ contact: { status: string; suppressed: boolean } | null }>;
 };
 
 function usableContactPredicate() {
@@ -58,6 +58,7 @@ function usableContactPredicate() {
         AND c."status" = 'APPROVED'::"ContactStatus"
         AND c."ownershipConfirmed" = true
         AND c."businessConfirmed" = true
+        AND c."suppressed" = false
         AND c."reviewedAt" IS NOT NULL
         AND c."expiresAt" > CURRENT_TIMESTAMP
         AND s."status" = 'APPROVED'::"SourceStatus"

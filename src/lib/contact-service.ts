@@ -5,7 +5,7 @@ import { extractContacts, isSyntheticContact } from "./contact-extractor";
 import { extractionAllowed, contactUsable } from "./contact-policy";
 import { canMaintain, type Role } from "./permissions";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
-import { suppressionFingerprint } from "./data-protection";
+import { suppressionFingerprint, suppressionFingerprintCandidates } from "./data-protection";
 import type { ExtractionInput, ReviewInput } from "./contact-validation";
 
 export class ContactError extends Error {
@@ -51,8 +51,10 @@ export async function extractForAccount(db: PrismaClient, actorId: string, input
     let suppressedCount = 0;
     const ids: string[] = [];
     for (const candidate of candidates) {
-      const suppressed = await tx.contactSuppression.findUnique({ where: { fingerprint: suppressionFingerprint(candidate.type, candidate.normalizedValue) }, select: { expiresAt: true } });
-      if (suppressed && suppressed.expiresAt > now) { suppressedCount++; continue; }
+      const candidateFingerprint = suppressionFingerprint(candidate.type, candidate.normalizedValue);
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:suppression:${candidateFingerprint}`}))::text AS locked`;
+      const suppressed = await tx.contactSuppression.findMany({ where: { fingerprint: { in: suppressionFingerprintCandidates(candidate.type, candidate.normalizedValue) }, expiresAt: { gt: now } }, select: { expiresAt: true }, take: 1 });
+      if (suppressed.length) { suppressedCount++; continue; }
       const dedupeKey = createHash("sha256").update(JSON.stringify([account.id, source.id, source.policyVersion, candidate.type, candidate.normalizedValue])).digest("hex");
       const existing = await tx.contactPoint.findUnique({ where: { dedupeKey } });
       if (existing) { ids.push(existing.id); continue; }
@@ -85,6 +87,10 @@ export async function reviewContact(db: PrismaClient, actorId: string, contactId
       if (current.expiresAt <= now) throw new ContactError("CONTACT_EXPIRED", "联系证据已过期");
       if (current.status !== "PENDING") throw new ContactError("INVALID_TRANSITION", "仅待审核项可批准；已驳回或失效项不能直接恢复", 409);
       if (!input.ownershipConfirmed || !input.businessConfirmed || !current.evidence.excerpt.trim()) throw new ContactError("CONFIRMATION_REQUIRED", "必须核对证据并分别确认账号归属及明确商务用途");
+      const candidateFingerprint = suppressionFingerprint(current.type, current.normalizedValue);
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`test3:suppression:${candidateFingerprint}`}))::text AS locked`;
+      const suppression = await tx.contactSuppression.findMany({ where: { fingerprint: { in: suppressionFingerprintCandidates(current.type, current.normalizedValue) }, expiresAt: { gt: now } }, select: { id: true }, take: 1 });
+      if (current.suppressed || suppression.length) throw new ContactError("CONTACT_SUPPRESSED", "该联系方式当前受拒绝联系规则约束，不能重新批准", 409);
     }
     const version = current.version + 1;
     const data = { status: input.status, ownershipConfirmed: input.status === "APPROVED" && input.ownershipConfirmed,

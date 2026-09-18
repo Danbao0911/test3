@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     const account = await prisma.account.findUnique({ where: { id: result.account.id }, include: { source: true } });
     return NextResponse.json({ item: account }, { status: 201 });
   } catch (error) {
-    if (error instanceof SourceNotAllowedError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.code === "SOURCE_NOT_FOUND" ? 422 : 403 });
+    if (error instanceof SourceNotAllowedError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.code === "SOURCE_NOT_FOUND" ? 422 : error.code === "IDENTITY_DELETION_BLOCKED" ? 409 : 403 });
     if (dbConflict(error)) return NextResponse.json({ error: "DUPLICATE", message: "账号已存在，请刷新后重试" }, { status: 409 });
     return NextResponse.json({ error: "DATABASE_ERROR", message: "账号保存失败，请稍后重试" }, { status: 500 });
   }

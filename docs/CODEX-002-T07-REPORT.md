@@ -1,5 +1,7 @@
 # CODEX-002-T07 · 受控导出、删除与审计交付报告
 
+> 状态说明（T07-R1）：本报告记录的是 T07 初始实现，不能替代 [`CODEX-002-T07-R1-REPORT.md`](./CODEX-002-T07-R1-REPORT.md)。T07-R1 已追加字段级许可、不可变导出清单、终态下载、依赖清理、全局抑制、恢复重放和有界清理；在 T07-R1 的隔离 PostgreSQL/CI 验收完成前，不声称本报告中的初始绿色 CI 覆盖了 R01–R08。
+
 ## 交付状态
 
 T07 已实现并追加到现有 [PR #2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review` 分支。功能代码最终 SHA 为 `1437a594fedb72f1cbe63b96a6778d2ac3ef4bb4`；未修改 `main`、未强推、未自动合并、未部署生产，也没有开放真实联系人提取、批准或平台外联。

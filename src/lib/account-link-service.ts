@@ -144,13 +144,13 @@ async function lockContactIds(tx: Prisma.TransactionClient, contactIds: string[]
 
 async function validateSharedContactCandidate(tx: Prisma.TransactionClient, sourceState: RelatingSourceState, leftAccountId: string, rightAccountId: string, basisContactId: string, matchingContactId: string) {
   await lockContactIds(tx, [basisContactId, matchingContactId]);
-  const contacts = await tx.contactPoint.findMany({ where: { id: { in: [basisContactId, matchingContactId] } }, select: { id: true, type: true, normalizedValue: true, status: true, expiresAt: true, evidence: { select: { accountId: true, sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } });
+  const contacts = await tx.contactPoint.findMany({ where: { id: { in: [basisContactId, matchingContactId] } }, select: { id: true, type: true, normalizedValue: true, status: true, suppressed: true, expiresAt: true, evidence: { select: { accountId: true, sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } });
   const basis = contacts.find((item) => item.id === basisContactId);
   const matching = contacts.find((item) => item.id === matchingContactId);
   if (!basis || !matching) throw new AccountLinkError("CANDIDATE_NOT_FOUND", "共享联系候选证据不存在", 422);
   const accountsMatch = new Set([basis.evidence.accountId, matching.evidence.accountId]);
   if (accountsMatch.size !== 2 || !accountsMatch.has(leftAccountId) || !accountsMatch.has(rightAccountId)) throw new AccountLinkError("CANDIDATE_ACCOUNT_MISMATCH", "共享联系候选与待关联账号不匹配", 422);
-  if (basis.type !== matching.type || basis.normalizedValue !== matching.normalizedValue || basis.status !== "APPROVED" || matching.status !== "APPROVED" || basis.expiresAt <= new Date() || matching.expiresAt <= new Date() || basis.evidence.sourceId !== sourceState.source.id || matching.evidence.sourceId !== sourceState.source.id || basis.evidence.policyVersion !== sourceState.source.policyVersion || matching.evidence.policyVersion !== sourceState.source.policyVersion || basis.evidence.policySnapshot.isLegacy || matching.evidence.policySnapshot.isLegacy) throw new AccountLinkError("LINK_POLICY_STALE", "关联所依据的联系证据或策略已失效，请重新取得并提交证据", 409);
+  if (basis.type !== matching.type || basis.normalizedValue !== matching.normalizedValue || basis.suppressed || matching.suppressed || basis.status !== "APPROVED" || matching.status !== "APPROVED" || basis.expiresAt <= new Date() || matching.expiresAt <= new Date() || basis.evidence.sourceId !== sourceState.source.id || matching.evidence.sourceId !== sourceState.source.id || basis.evidence.policyVersion !== sourceState.source.policyVersion || matching.evidence.policyVersion !== sourceState.source.policyVersion || basis.evidence.policySnapshot.isLegacy || matching.evidence.policySnapshot.isLegacy) throw new AccountLinkError("LINK_POLICY_STALE", "关联所依据的联系证据或策略已失效，请重新取得并提交证据", 409);
 }
 
 async function loadLink(tx: Db, id: string) {
@@ -170,10 +170,11 @@ async function persistRelationEvidence(tx: Prisma.TransactionClient, link: NonNu
     if (!state) throw new AccountLinkError("SOURCE_NOT_FOUND", "关系证据来源不存在", 404);
     assertSourceAllowed(state);
     if (!state.snapshot) throw new AccountLinkError("LINK_POLICY_STALE", "关系证据来源缺少当前策略快照", 409);
-    let reference: { id: string; sourceId: string; policyVersion: number; sourceUrl: string; accountId: string } | null = null;
+    let reference: { id: string; sourceId: string; policyVersion: number; sourceUrl: string; accountId: string; contact: { status: string; suppressed: boolean; expiresAt: Date } | null } | null = null;
     if (input.referenceEvidenceId) {
-      reference = await tx.evidence.findUnique({ where: { id: input.referenceEvidenceId }, select: { id: true, sourceId: true, policyVersion: true, sourceUrl: true, accountId: true } });
+      reference = await tx.evidence.findUnique({ where: { id: input.referenceEvidenceId }, select: { id: true, sourceId: true, policyVersion: true, sourceUrl: true, accountId: true, contact: { select: { status: true, suppressed: true, expiresAt: true } } } });
       if (!reference) throw new AccountLinkError("LINK_EVIDENCE_REFERENCE_MISSING", "引用的关系证据不存在，不能确认", 409);
+      if (reference.contact && (reference.contact.suppressed || reference.contact.status !== "APPROVED" || reference.contact.expiresAt <= new Date())) throw new AccountLinkError("LINK_DEPENDENCY_STALE", "引用证据对应的联系项已失效或受抑制，不能确认关联", 409);
       if (reference.sourceId !== state.source.id || reference.policyVersion !== state.source.policyVersion || ![leftId, rightId].includes(reference.accountId)) throw new AccountLinkError("LINK_EVIDENCE_REFERENCE_INVALID", "引用证据不属于当前账号对或当前来源策略", 422);
     }
     const coverage = await Promise.all(accounts.map(async (account) => {
@@ -198,9 +199,9 @@ async function linkValidity(db: Db, linkId: string): Promise<AccountLinkValidity
     source: true,
     leftAccount: { select: { id: true, sourceId: true } },
     rightAccount: { select: { id: true, sourceId: true } },
-    basisContact: { select: { id: true, status: true, expiresAt: true, evidence: { select: { sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } },
-    matchingContact: { select: { id: true, status: true, expiresAt: true, evidence: { select: { sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } },
-    evidences: { select: { id: true, sourceId: true, policyVersion: true, policySnapshotId: true, leftAccountVerified: true, rightAccountVerified: true, referenceEvidenceId: true } },
+    basisContact: { select: { id: true, status: true, suppressed: true, expiresAt: true, evidence: { select: { sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } },
+    matchingContact: { select: { id: true, status: true, suppressed: true, expiresAt: true, evidence: { select: { sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } },
+    evidences: { select: { id: true, sourceId: true, policyVersion: true, policySnapshotId: true, leftAccountVerified: true, rightAccountVerified: true, referenceEvidenceId: true, referenceEvidenceMissing: true } },
   } });
   if (!link) return { usable: false, unusableReason: "LINK_NOT_FOUND" };
   if (link.status === "PENDING") return { usable: false, unusableReason: "PENDING_REVIEW" };
@@ -223,12 +224,12 @@ async function linkValidity(db: Db, linkId: string): Promise<AccountLinkValidity
     if (!source || !canUseRelatingSource(source, snapshot)) return { usable: false, unusableReason: "LINK_POLICY_STALE" };
     const evidenceSnapshot = snapshots.find((item) => item.sourceId === evidence.sourceId && item.version === evidence.policyVersion);
     if (evidence.policyVersion !== source.policyVersion || !evidenceSnapshot || evidenceSnapshot.id !== evidence.policySnapshotId || evidenceSnapshot.isLegacy) return { usable: false, unusableReason: "LINK_POLICY_STALE" };
-    if (evidence.referenceEvidenceId && !references.some((reference) => reference.id === evidence.referenceEvidenceId)) return { usable: false, unusableReason: "LINK_EVIDENCE_REFERENCE_MISSING" };
+    if (evidence.referenceEvidenceMissing || (evidence.referenceEvidenceId && !references.some((reference) => reference.id === evidence.referenceEvidenceId))) return { usable: false, unusableReason: "LINK_EVIDENCE_REFERENCE_MISSING" };
     if (!evidence.leftAccountVerified || !evidence.rightAccountVerified) return { usable: false, unusableReason: "LINK_EVIDENCE_INCOMPLETE" };
   }
   if (link.basis === "SHARED_CONTACT_CANDIDATE") {
     const contacts = [link.basisContact, link.matchingContact];
-    if (contacts.some((contact) => !contact || contact.status !== "APPROVED" || contact.expiresAt <= new Date() || contact.evidence.sourceId !== link.sourceId || contact.evidence.policyVersion !== link.source.policyVersion || contact.evidence.policySnapshot.isLegacy)) return { usable: false, unusableReason: "LINK_DEPENDENCY_STALE" };
+    if (contacts.some((contact) => !contact || contact.status !== "APPROVED" || contact.suppressed || contact.expiresAt <= new Date() || contact.evidence.sourceId !== link.sourceId || contact.evidence.policyVersion !== link.source.policyVersion || contact.evidence.policySnapshot.isLegacy)) return { usable: false, unusableReason: "LINK_DEPENDENCY_STALE" };
   }
   return { usable: true, unusableReason: null };
 }
@@ -284,15 +285,15 @@ export async function suggestAccountLinksForContact(db: PrismaClient, actorId: s
   const limit = Math.min(Math.max(options.limit ?? LINK_REVIEW_LIMIT, 1), LINK_REVIEW_LIMIT);
   return withLinkTransaction(db, async (tx) => {
     await requireWriter(tx, actorId);
-    const contact = await tx.contactPoint.findUnique({ where: { id: contactId }, select: { id: true, type: true, normalizedValue: true, status: true, expiresAt: true, evidence: { select: { accountId: true, sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } });
+    const contact = await tx.contactPoint.findUnique({ where: { id: contactId }, select: { id: true, type: true, normalizedValue: true, status: true, suppressed: true, expiresAt: true, evidence: { select: { accountId: true, sourceId: true, policyVersion: true, policySnapshot: { select: { isLegacy: true } } } } } });
     if (!contact) throw new AccountLinkError("CONTACT_NOT_FOUND", "联系项不存在", 404);
     const sourceStates = await lockSources(tx, [contact.evidence.sourceId]);
     const sourceState = sourceStates.get(contact.evidence.sourceId);
     if (!sourceState) throw new AccountLinkError("SOURCE_NOT_FOUND", "来源不存在", 404);
     assertSourceAllowed(sourceState);
-    if (contact.status !== "APPROVED" || contact.expiresAt <= new Date() || contact.evidence.policyVersion !== sourceState.source.policyVersion || contact.evidence.policySnapshot.isLegacy) throw new AccountLinkError("CONTACT_NOT_CURRENT", "只有当前来源策略下已审核通过的联系项才能生成待核验关联候选", 422);
+    if (contact.status !== "APPROVED" || contact.suppressed || contact.expiresAt <= new Date() || contact.evidence.policyVersion !== sourceState.source.policyVersion || contact.evidence.policySnapshot.isLegacy) throw new AccountLinkError("CONTACT_NOT_CURRENT", "只有当前来源策略下已审核通过且未受抑制的联系项才能生成待核验关联候选", 422);
     if (options.cursor && !isUuid(options.cursor)) throw new AccountLinkError("INVALID_CURSOR", "建议继续标识无效", 422);
-    const matches = await tx.contactPoint.findMany({ where: { id: { not: contact.id }, type: contact.type, normalizedValue: contact.normalizedValue, status: "APPROVED", expiresAt: { gt: new Date() }, ...(options.cursor ? { id: { gt: options.cursor } } : {}), evidence: { sourceId: sourceState.source.id, policyVersion: sourceState.source.policyVersion, accountId: { not: contact.evidence.accountId }, policySnapshot: { isLegacy: false } } }, select: { id: true, evidence: { select: { accountId: true } } }, orderBy: { id: "asc" }, take: limit + 1 });
+    const matches = await tx.contactPoint.findMany({ where: { id: { not: contact.id }, type: contact.type, normalizedValue: contact.normalizedValue, suppressed: false, status: "APPROVED", expiresAt: { gt: new Date() }, ...(options.cursor ? { id: { gt: options.cursor } } : {}), evidence: { sourceId: sourceState.source.id, policyVersion: sourceState.source.policyVersion, accountId: { not: contact.evidence.accountId }, policySnapshot: { isLegacy: false } } }, select: { id: true, evidence: { select: { accountId: true } } }, orderBy: { id: "asc" }, take: limit + 1 });
     const hasMore = matches.length > limit;
     const pageMatches = matches.slice(0, limit);
     await lockAccountPairs(tx, pageMatches.map((match) => [contact.evidence.accountId, match.evidence.accountId]));

@@ -5,6 +5,7 @@ import type { PrismaClient, Source } from "../generated/prisma/client";
 import { normalizeProfileUrl, normalizeSourceUrl, UrlValidationError } from "./account-normalizer";
 import { accountInputSchema, type AccountInput, validationMessage } from "./validation";
 import { currentRuntimeMode, sourceTypeAllowed } from "./runtime-config";
+import { stableIdentityFingerprint } from "./data-protection";
 
 export const IMPORT_FORMAT_VERSION = "v1";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -122,7 +123,7 @@ export function sourceBlockMessage(source: Pick<Source, "status" | "allowImport"
 export type DbClient = Prisma.TransactionClient;
 
 export class SourceNotAllowedError extends Error {
-  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED", message: string) {
+  constructor(public readonly code: "SOURCE_NOT_FOUND" | "SOURCE_NOT_ALLOWED" | "SOURCE_TYPE_NOT_ALLOWED" | "IDENTITY_DELETION_BLOCKED", message: string) {
     super(message);
     this.name = "SourceNotAllowedError";
   }
@@ -190,6 +191,11 @@ async function findExistingAccount(tx: DbClient, input: Pick<AccountInput, "plat
   return { byNativeId, byUrl };
 }
 
+async function identityDeletionBlocked(tx: DbClient, input: Pick<AccountInput, "platform" | "nativeId">, normalizedProfileUrl: string) {
+  const fingerprint = stableIdentityFingerprint({ platform: input.platform, nativeId: input.nativeId, normalizedProfileUrl });
+  return Boolean(await tx.deletionRequest.findFirst({ where: { identityFingerprint: fingerprint, scope: "ACCOUNT_REIMPORT_BLOCK", OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: new Date() } }] }, select: { id: true } }));
+}
+
 export async function createAccountWithRules(
   client: PrismaClient,
   input: AccountInput,
@@ -202,6 +208,7 @@ export async function createAccountWithRules(
       return await client.$transaction(async (tx) => {
         const source = sourceForWrite(await lockSource(tx, input.sourceId));
         await lockKeys(tx, accountLockKeys(input, normalizedProfileUrl));
+        if (await identityDeletionBlocked(tx, input, normalizedProfileUrl)) throw new SourceNotAllowedError("IDENTITY_DELETION_BLOCKED", "该平台身份处于删除后的重新录入阻止期");
         const { byNativeId, byUrl } = await findExistingAccount(tx, input, normalizedProfileUrl);
         if (byNativeId && byUrl && byNativeId.id !== byUrl.id) return { kind: "conflict" };
         const existing = byNativeId ?? byUrl;
@@ -271,6 +278,11 @@ export async function executeImport(
             continue;
           }
           const { byNativeId, byUrl } = await findExistingAccount(tx, row.input, row.normalizedProfileUrl);
+          if (await identityDeletionBlocked(tx, row.input, row.normalizedProfileUrl)) {
+            invalidCount += 1;
+            await tx.importRowResult.create({ data: { batchId: createdBatch.id, rowNumber: row.rowNumber, status: "INVALID", errorCode: "IDENTITY_DELETION_BLOCKED", errorMessage: "该平台身份处于删除后的重新录入阻止期" } });
+            continue;
+          }
           if (byNativeId && byUrl && byNativeId.id !== byUrl.id) {
             invalidCount += 1;
             await tx.importRowResult.create({ data: { batchId: createdBatch.id, rowNumber: row.rowNumber, status: "INVALID", errorCode: "IDENTITY_CONFLICT", errorMessage: "平台身份 ID 和主页链接分别命中不同账号" } });

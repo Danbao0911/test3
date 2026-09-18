@@ -16,7 +16,7 @@ test("T07 管理员导出前检查策略并生成一次性 CSV 链接", async ({
   expect(sourceResponse.status()).toBe(201);
   const source = await sourceResponse.json();
   const sourceId = source.item.id as string;
-  const approved = await page.request.patch(`/api/sources/${sourceId}`, { headers: { Origin: origin }, data: { expectedPolicyVersion: source.item.policyVersion, status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, allowExport: true } });
+  const approved = await page.request.patch(`/api/sources/${sourceId}`, { headers: { Origin: origin }, data: { expectedPolicyVersion: source.item.policyVersion, status: "APPROVED", allowImport: true, allowExtract: true, allowEvidenceText: true, allowExport: true, allowedExportFields: ["DISPLAY_NAME", "CONTACT_VALUE", "SOURCE_URL"] } });
   expect(approved.status()).toBe(200);
   const accountResponse = await page.request.post("/api/accounts", { headers: { Origin: origin }, data: { platform: "X", nativeId: `t07-e2e-${suffix}`, displayName: `=T07 E2E 账号 ${suffix}`, profileUrl: `https://example.com/demo/x/t07-e2e-${suffix}`, organization: "T07 E2E 虚构机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: `https://example.com/demo/source/${suffix}` } });
   expect(accountResponse.status()).toBe(201);

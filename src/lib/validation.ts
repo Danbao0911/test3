@@ -70,6 +70,8 @@ export const sourceCreateSchema = z
   })
   .strict();
 
+export const exportFieldValues = ["ACCOUNT_ID", "PLATFORM", "DISPLAY_NAME", "ORGANIZATION", "SERVICE_TAGS", "REGION", "CONTACT_TYPE", "CONTACT_VALUE", "SOURCE_URL", "CAPTURED_AT", "REVIEWED_AT"] as const;
+
 export const sourcePatchSchema = z
   .object({
     expectedPolicyVersion: z.number().int().positive(),
@@ -80,13 +82,13 @@ export const sourcePatchSchema = z
     allowEvidenceText: z.boolean().optional(),
     allowRelate: z.boolean().optional(),
     allowExport: z.boolean().optional(),
+    allowedExportFields: z.array(z.enum(exportFieldValues)).max(exportFieldValues.length).optional(),
     retentionDays: z.number().int().min(1).max(365).optional(),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少提供一个来源修改字段");
 
-export const exportFieldValues = ["ACCOUNT_ID", "PLATFORM", "DISPLAY_NAME", "ORGANIZATION", "SERVICE_TAGS", "REGION", "CONTACT_TYPE", "CONTACT_VALUE", "SOURCE_URL", "CAPTURED_AT", "REVIEWED_AT"] as const;
 export const exportCreateSchema = z.object({
   accountIds: z.array(z.uuid()).max(500).optional(),
   fields: z.array(z.enum(exportFieldValues)).min(1).max(exportFieldValues.length),
