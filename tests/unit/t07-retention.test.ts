@@ -50,6 +50,8 @@ describe("T07 retention and export guards", () => {
       expect(decodeMaintenanceCheckpoint(token, { operation: "replay", database: "test3_ci_r2", runId: "r2" }).cursors.accountDone).toBe(false);
       expect(() => decodeMaintenanceCheckpoint(token, { operation: "cleanup", database: "test3_ci_r2", runId: "r2" })).toThrow("目标");
       expect(() => decodeMaintenanceCheckpoint(`${token.slice(0, -1)}x`, { operation: "replay", database: "test3_ci_r2", runId: "r2" })).toThrow("签名");
+      const malformed = encodeMaintenanceCheckpoint({ operation: "replay", database: "test3_ci_r2", runId: "r2", cutoff: "2026-09-18T00:00:00.000Z", cursors: { unexpected: "not-a-uuid" } });
+      expect(() => decodeMaintenanceCheckpoint(malformed, { operation: "replay", database: "test3_ci_r2", runId: "r2" })).toThrow("游标");
     } finally {
       if (previous === undefined) delete process.env.RETENTION_CHECKPOINT_KEY;
       else process.env.RETENTION_CHECKPOINT_KEY = previous;

@@ -23,7 +23,7 @@ RETENTION_MAINTENANCE_ACTOR_ID=<隔离库中的管理员或维护审计身份 UU
 
 ```bash
 pnpm retention:cleanup -- --dry-run --batch-size 50
-RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
+RETENTION_RUN_ID="restore-2026-09-18" RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
   pnpm retention:cleanup -- --batch-size 50 --max-batches 100
 
 # 上次输出 incomplete 且有 continuation 时，使用同一 RETENTION_RUN_ID 续跑
@@ -43,7 +43,7 @@ RETENTION_RUN_ID="restore-2026-09-18" RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_
 
 ```bash
 pnpm retention:replay -- --dry-run
-RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
+RETENTION_RUN_ID="restore-2026-09-18" RETENTION_MAINTENANCE_CONFIRM=1 RETENTION_MAINTENANCE_ACTOR_ID="$ACTOR_ID" \
   pnpm retention:replay -- --batch-size 100 --max-batches 100
 ```
 

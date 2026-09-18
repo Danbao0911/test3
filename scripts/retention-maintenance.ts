@@ -20,7 +20,9 @@ function value(name: string, fallback: number) {
 }
 
 function runId() {
-  return process.env.RETENTION_RUN_ID ?? process.env.TEST_RUN_ID ?? "manual";
+  const value = process.env.RETENTION_RUN_ID ?? process.env.TEST_RUN_ID;
+  if (!value) throw new Error("必须设置 RETENTION_RUN_ID（测试环境使用 TEST_RUN_ID）以绑定 checkpoint");
+  return value;
 }
 
 function checkpointFor(operation: MaintenanceOperation, database: string, cursors: MaintenanceCursors, cutoff: Date) {

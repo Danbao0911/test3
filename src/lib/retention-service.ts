@@ -133,6 +133,7 @@ type ReplayRule = {
   id: string;
   targetType: string;
   scope: string;
+  identityType: string | null;
   identityNativeFingerprint: string | null;
   identityProfileFingerprint: string | null;
   identityVersion: number;
@@ -142,6 +143,7 @@ type ReplayRule = {
 
 function replayRuleSupported(rule: ReplayRule) {
   return rule.targetType === "ACCOUNT" && rule.scope === "ACCOUNT_REIMPORT_BLOCK" &&
+    rule.identityType === "ACCOUNT_PLATFORM_IDENTITY_V2" &&
     rule.identityVersion === ACCOUNT_IDENTITY_FINGERPRINT_VERSION && Boolean(rule.identityKeyId) &&
     suppressionKeyAvailable(rule.identityKeyId) &&
     Boolean(rule.identityNativeFingerprint || rule.identityProfileFingerprint);
@@ -176,7 +178,7 @@ export async function replayDeletionRules(db: PrismaClient, actorId: string, opt
       ],
       AND: [{ OR: [{ identityExpiresAt: null }, { identityExpiresAt: { gt: now } }] }],
     },
-    select: { id: true, targetType: true, scope: true, identityNativeFingerprint: true, identityProfileFingerprint: true, identityVersion: true, identityKeyId: true, identityExpiresAt: true },
+    select: { id: true, targetType: true, scope: true, identityType: true, identityNativeFingerprint: true, identityProfileFingerprint: true, identityVersion: true, identityKeyId: true, identityExpiresAt: true },
   });
   const legacyUnknown = rules.filter((rule) => rule.scope === "LEGACY_UNKNOWN").length;
   const blockedRules = rules.filter((rule) => !replayRuleSupported(rule));

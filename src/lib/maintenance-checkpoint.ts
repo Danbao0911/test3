@@ -49,8 +49,12 @@ export function decodeMaintenanceCheckpoint(token: string, expected: { operation
   if (!body || typeof body !== "object") throw new Error("checkpoint 内容无效");
   const value = body as Partial<CheckpointBody>;
   if (value.v !== 1 || value.operation !== expected.operation || value.database !== expected.database || value.runId !== expected.runId || typeof value.cutoff !== "string" || !Number.isFinite(new Date(value.cutoff).getTime()) || !value.cursors || typeof value.cursors !== "object") throw new Error("checkpoint 目标或截止时间不匹配");
+  const allowedKeys = value.operation === "replay"
+    ? new Set(["accountCursor", "contactCursor", "accountDone", "contactDone"])
+    : new Set(["contactCursor", "exportCursor", "suppressionCursor", "contactDone", "exportDone", "suppressionDone"]);
   for (const [key, cursor] of Object.entries(value.cursors)) {
-    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key) || !(cursor === null || typeof cursor === "boolean" || typeof cursor === "undefined" || (typeof cursor === "string" && cursor.length <= 80))) throw new Error("checkpoint 游标无效");
+    const validCursor = cursor === null || typeof cursor === "boolean" || typeof cursor === "undefined" || (typeof cursor === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(cursor));
+    if (!allowedKeys.has(key) || !validCursor) throw new Error("checkpoint 游标无效");
   }
   return { cutoff: new Date(value.cutoff), cursors: value.cursors as MaintenanceCursors };
 }
