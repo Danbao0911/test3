@@ -63,6 +63,7 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   await page.getByRole("button", { name: "创建 DRAFT 来源" }).click();
   const sourceRow = page.locator("tbody tr").filter({ hasText: sourceName });
   await sourceRow.getByRole("button", { name: "批准录入" }).click();
+  await expect(sourceRow).toContainText("APPROVED");
   const sourceId = await sourceRow.getAttribute("data-source-id");
   await page.goto("/accounts/new");
   await page.getByLabel("账号名称").fill(accountName);
