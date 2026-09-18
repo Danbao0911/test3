@@ -207,7 +207,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const linkId = created.data.item!.id as string;
     const withoutEvidence = await request("reviewerA", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "只有理由没有关系证据" }) });
     expect(withoutEvidence.response.status).toBe(422);
-    expect(withoutEvidence.data.error).toBe("VALIDATION_ERROR");
+    expect(withoutEvidence.data.error).toBe("LINK_EVIDENCE_REQUIRED");
     const changed = await request("admin", `/api/sources/${sourceId}`);
     const policyChanged = await request("admin", `/api/sources/${sourceId}`, { method: "PATCH", ...jsonBody({ expectedPolicyVersion: changed.data.item!.policyVersion as number, permissionNote: "T06 隔离测试授权依据 v2" }) });
     expect(policyChanged.response.status).toBe(200);

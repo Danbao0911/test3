@@ -87,7 +87,16 @@ test("账号工作台—收藏—负责人—人工跟进—筛选", async ({ pa
   await page.goto("/accounts");
   await page.getByLabel("跟进状态").selectOption("CONTACTING");
   await page.getByLabel("收藏").selectOption("YES");
+  const filteredAccounts = page.waitForResponse((response) => {
+    if (!response.url().includes("/api/accounts?")) return false;
+    const query = new URL(response.url()).searchParams;
+    return response.request().method() === "GET" && query.get("followUpStatus") === "CONTACTING" && query.get("favorite") === "YES";
+  });
   await page.getByRole("button", { name: "筛选" }).click();
+  const filteredResponse = await filteredAccounts;
+  expect(filteredResponse.ok()).toBe(true);
+  const filteredData = await filteredResponse.json() as { items?: Array<{ displayName?: string }> };
+  expect(filteredData.items?.map((item) => item.displayName)).toContain(accountName);
   await expect(page.getByText(accountName)).toBeVisible();
   await expect(page.getByRole("table").getByText("人工联系中")).toBeVisible();
 });
