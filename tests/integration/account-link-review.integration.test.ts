@@ -141,8 +141,8 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const sourceId = await createSource();
     const left = await createAccount(sourceId, "same-left");
     const right = await createAccount(sourceId, "same-right");
-    const duplicate = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: "t06-duplicate", displayName: "另一个名称", profileUrl: "https://example.com/demo/x/same-left", sourceId, sourceUrl: "https://example.com/demo/source/duplicate" }) });
-    expect(duplicate.response.status).toBe(409);
+    const duplicate = await request("admin", "/api/accounts", { method: "POST", ...jsonBody({ platform: "X", nativeId: "t06-duplicate", displayName: "另一个名称", profileUrl: "https://example.com/demo/x/same-left", organization: "T06 测试机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: "https://example.com/demo/source/duplicate" }) });
+    expect(duplicate.response.status, JSON.stringify(duplicate.data)).toBe(409);
     expect(duplicate.data.error).toBe("DUPLICATE");
     expect((await request("viewer", `/api/accounts/${left}`)).data.item).toMatchObject({ id: left, displayName: "T06 同名账号" });
     expect((await request("viewer", `/api/accounts/${right}`)).data.item).toMatchObject({ id: right, displayName: "T06 同名账号" });
@@ -167,7 +167,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const left = await createAccount(sourceId, "review-left");
     const right = await createAccount(sourceId, "review-right");
     const link = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
-    expect(link.response.status).toBe(201);
+    expect(link.response.status, JSON.stringify(link.data)).toBe(201);
     expect(link.data.item).toMatchObject({ status: "PENDING", usable: false, basis: "MANUAL", version: 1 });
     const linkId = link.data.item!.id as string;
     const confirmed = await request("reviewerB", `/api/account-links/${linkId}`, { method: "PATCH", ...jsonBody({ expectedVersion: 1, status: "CONFIRMED", reason: "人工核对两个账号的公开主体资料后确认" }) });
@@ -196,7 +196,7 @@ describe("CODEX-002-T06 real HTTP account dedupe and link review", () => {
     const left = await createAccount(sourceId, "permissions-left");
     const right = await createAccount(sourceId, "permissions-right");
     const created = await request("reviewerA", "/api/account-links", { method: "POST", ...jsonBody({ leftAccountId: left, rightAccountId: right, sourceId, basis: "MANUAL" }) });
-    expect(created.response.status).toBe(201);
+    expect(created.response.status, JSON.stringify(created.data)).toBe(201);
     const linkId = created.data.item!.id as string;
     const viewerList = await request("viewer", "/api/account-links?status=PENDING");
     const viewerItem = viewerList.data.items?.find((item) => item.id === linkId);

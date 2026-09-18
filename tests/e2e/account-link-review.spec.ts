@@ -24,7 +24,7 @@ test("T06 账号关联只能人工确认，确认后仍可按来源策略计算�
   expect(approved.status()).toBe(200);
 
   async function createAccount(name: string, id: string) {
-    const response = await page.request.post("/api/accounts", { headers: { Origin: origin }, data: { platform: "X", nativeId: id, displayName: name, profileUrl: `https://example.com/demo/x/${id}`, sourceId, sourceUrl: `https://example.com/demo/source/${id}` } });
+    const response = await page.request.post("/api/accounts", { headers: { Origin: origin }, data: { platform: "X", nativeId: id, displayName: name, profileUrl: `https://example.com/demo/x/${id}`, organization: "T06 E2E 测试机构", serviceTags: ["财富规划"], region: "上海", sourceId, sourceUrl: `https://example.com/demo/source/${id}` } });
     expect(response.status()).toBe(201);
     return (await response.json()).item.id as string;
   }
