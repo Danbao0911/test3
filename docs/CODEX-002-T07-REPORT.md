@@ -2,6 +2,8 @@
 
 > 状态说明（T07-R1）：本报告记录的是 T07 初始实现，不能替代 [`CODEX-002-T07-R1-REPORT.md`](./CODEX-002-T07-R1-REPORT.md)。T07-R1 已在 `7d78ca5b226da15dc054197b2c5fef11453c1109` 追加字段级许可、不可变导出清单、终态下载、依赖清理、全局抑制、恢复重放和有界清理，并由最终 Push CI `35336417309`、PR CI `35336420997` 重新验证；本报告中的初始 CI 数字仅作历史记录。
 
+> 最新复核补充：`CODEX-002-LATEST-REVIEW` 已在 `c0bac42bcd1542dd3e64e71456ae252fa36e9419` 实现独立身份规则、游标化恢复重放、统一资源锁序、直接删除的全局抑制同步、关系引用有效性和登录并发准入；`44565c23e8ca1e45c52c50610c900b4af223c9ae` 修正新增真实集成夹具的外键清理。最新 PR CI [35348838941](https://github.com/Danbao0911/test3/actions/runs/35348838941) 在隔离 PostgreSQL 中通过 126 个单元、66 个集成和 10 个 E2E 测试。详细范围、未完成的恢复演练和锁屏障覆盖见 [`CODEX-002-LATEST-REVIEW-REPORT.md`](./CODEX-002-LATEST-REVIEW-REPORT.md)。
+
 ## 交付状态
 
 T07 已实现并追加到现有 [PR #2](https://github.com/Danbao0911/test3/pull/2) 的 `codex/002-contact-review` 分支。功能代码最终 SHA 为 `1437a594fedb72f1cbe63b96a6778d2ac3ef4bb4`；未修改 `main`、未强推、未自动合并、未部署生产，也没有开放真实联系人提取、批准或平台外联。
